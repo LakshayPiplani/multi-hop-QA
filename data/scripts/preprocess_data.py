@@ -1,12 +1,10 @@
 import os, argparse, json
-from datasets import Dataset
+from datasets import Dataset # type: ignore
 from pathlib import Path
 
 """
     before running this script, please dowload the dataset by running.
-        download_data.py
-
-    
+       python download_data.py --output_dir <output_directory> --splits <split1> <split2> ...
 """
 
 def preprocess(raw_dir: str, processed_dir: str, file_names: list[str]) -> None:
@@ -89,6 +87,8 @@ if __name__ == "__main__":
     # the sub-directory processed contains the processed dataset
     # the processed dataset is saved in the form of arrow files
     processed_dir = os.path.join(scriptpath,'processed')
+    print(f"Raw directory: {raw_dir}")
+    print(f"Processed directory: {processed_dir}")
     # take arguments from the command line
     # make list of all files in the raw directory if they are .json files
     file_names = [jsonfile for jsonfile in os.listdir(raw_dir) if jsonfile.endswith('.json')]
