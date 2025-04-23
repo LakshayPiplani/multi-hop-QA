@@ -6,11 +6,14 @@ from pathlib import Path
 import torch
 from datasets import Dataset
 from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
     LlamaTokenizer,
     LlamaForCausalLM,
     Trainer,
     TrainingArguments,
-    DataCollatorWithPadding
+    DataCollatorWithPadding,
+    DataCollatorForSeq2Seq
 )
 from peft import LoraConfig, get_peft_model
 
@@ -23,7 +26,8 @@ def main():
     # Resolve project root and data directories
     PROJECT_ROOT = Path(__file__).parent.parent.resolve()
     processed_dir = PROJECT_ROOT / "data" / "processed"
-    train_subdir = "hotpot_train_v1.1"
+    #train_subdir = "hotpot_train_v1.1"
+    train_subdir = "hotpot_dev_distractor_v1"
     dev_subdir = "hotpot_dev_distractor_v1"
 
     # Load examples
@@ -50,14 +54,24 @@ def main():
 
     # Load tokenizer and tokenize datasets
     print("Loading tokenizer...")
-    tokenizer = LlamaTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
-
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B")
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
     def tokenize_fn(batch):
+        return tokenizer(
+            batch["text"],
+            text_target=batch["labels"],  # Use text_target for labels
+            truncation=True,
+            max_length=2048,
+            padding="max_length"  # Changed to max_length padding
+        )
+    
         tokenized = tokenizer(
             batch["text"],
             truncation=True,
             max_length=2048,
-            padding=False
+            padding=True
         )
         # Tokenize labels separately
         with tokenizer.as_target_tokenizer():
@@ -65,9 +79,10 @@ def main():
                 batch["labels"],
                 truncation=True,
                 max_length=2048,
-                padding=False
+                padding=True
             )["input_ids"]
         tokenized["labels"] = labels
+
         return tokenized
 
     print("Tokenizing training data...")
@@ -80,15 +95,16 @@ def main():
     dev_ds = dev_ds.map(
         tokenize_fn,
         batched=True,
-        remove_columns=["text", "labels"]
+        remove_columns=["text", "labels"] 
     )
 
+    device = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
     # Initialize model without bitsandbytes
     print("Loading base model...")
     model = LlamaForCausalLM.from_pretrained(
-        "meta-llama/Llama-2-7b-chat-hf",
-        torch_dtype=torch.float16,
-        device_map="auto"
+        "meta-llama/Llama-3.2-3B",
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        device_map={"": "cuda" if torch.cuda.is_available() else "cpu"}
     )
 
     # Apply LoRA adapters
@@ -103,6 +119,7 @@ def main():
     )
     model = get_peft_model(model, peft_config)
 
+    fp16_flag = True if torch.cuda.is_available() else False
     # Training arguments
     training_args = TrainingArguments(
         output_dir=str(PROJECT_ROOT / "models" / "sft"),
@@ -116,11 +133,18 @@ def main():
         logging_strategy="steps",
         logging_steps=50,
         save_total_limit=2,
-        fp16=True,
-        report_to=["none"]
+        fp16=fp16_flag,
+        report_to=["none"],
+        label_names=["labels"]
     )
 
-    data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
+    #data_collator = DataCollatorWithPadding(tokenizer, padding= True)
+    data_collator = DataCollatorForSeq2Seq(
+        tokenizer,
+        model=model,
+        pad_to_multiple_of=8,
+        padding=True
+    )
 
     trainer = Trainer(
         model=model,
