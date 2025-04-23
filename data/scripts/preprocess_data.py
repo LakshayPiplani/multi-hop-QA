@@ -1,13 +1,17 @@
-import os
-import argparse
-import json
+import os, argparse, json
 from datasets import Dataset
+from pathlib import Path
 
+"""
+    before running this script, please dowload the dataset by running.
+        download_data.py
+
+    
+"""
 
 def preprocess(raw_dir: str, processed_dir: str, file_names: list[str]) -> None:
     """
-    Load local HotpotQA JSON files (array-of-objects), normalize fields,
-    and save as Arrow datasets.
+    Load local HotpotQA JSON files (array-of-objects), normalize fields, and save as Arrow datasets.
 
     Each JSON file is a list of dicts with keys:
       _id: str
@@ -21,20 +25,16 @@ def preprocess(raw_dir: str, processed_dir: str, file_names: list[str]) -> None:
       - context -> list of dict{'title': str, 'sentences': List[str]}
     """
     os.makedirs(processed_dir, exist_ok=True)
-
     for file_name in file_names:
         print(f"\nStarting processing for file '{file_name}'")
         json_path = os.path.join(raw_dir, file_name)
         if not os.path.isfile(json_path):
             raise FileNotFoundError(f"Could not find JSON at {json_path}")
-
         print(f"Reading raw JSON from {json_path}...")
         with open(json_path, 'r', encoding='utf-8') as f:
             records = json.load(f)
-
         if not isinstance(records, list):
             raise ValueError(f"Expected top-level list in JSON, got {type(records)}")
-
         print(f"Loaded {len(records)} records; normalizing fields...")
         normalized = []
         for rec in records:
@@ -82,17 +82,20 @@ def preprocess(raw_dir: str, processed_dir: str, file_names: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    # fsspec.config.conf['default_block_size'] = 20 * 2**20  # 20 MiB
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    raw_dir = os.path.join(script_dir, '..', 'raw')
-    processed_dir = os.path.join(script_dir, '..', 'processed')
-
+    # find path the directory of this script
+    scriptpath = Path(os.path.dirname(os.path.abspath(__file__))).parent.absolute()
+    # the sub-directory raw contains the unprocessed json files of the dataset 
+    raw_dir = os.path.join(scriptpath,'raw')
+    # the sub-directory processed contains the processed dataset
+    # the processed dataset is saved in the form of arrow files
+    processed_dir = os.path.join(scriptpath,'processed')
+    # take arguments from the command line
+    # make list of all files in the raw directory if they are .json files
+    file_names = [jsonfile for jsonfile in os.listdir(raw_dir) if jsonfile.endswith('.json')]
+    print(f"Found {len(file_names)} JSON files in {raw_dir}: {file_names}")
     parser = argparse.ArgumentParser(description="Preprocess HotpotQA distractor data robustly")
-    parser.add_argument("--raw_dir", type=str, default=raw_dir,
-                        help="Directory to rea raw JSON files")
-    parser.add_argument("--processed_dir", type=str, default=processed_dir,
-                        help="Directory to save processed datasets")
-    parser.add_argument("--file_names", nargs="+", default=["hotpot_dev_distractor_v1.json", "hotpot_train_v1.1.json"],
-                        help="Which files to process")
+    parser.add_argument("--raw_dir", type=str, default=raw_dir, help="Raw Dataset Directory")
+    parser.add_argument("--processed_dir", type=str, default=processed_dir, help="Processed Dataset Directory")
+    parser.add_argument("--file_names", nargs="+", default=file_names, help="Files to process")
     args = parser.parse_args()
     preprocess(args.raw_dir, args.processed_dir, args.file_names)
