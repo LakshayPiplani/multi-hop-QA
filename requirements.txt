@@ -1,0 +1,9 @@
+datasets==3.5.0
+huggingface_hub==0.30.2
+networkx==3.2.1
+networkx==3.4.2
+peft==0.15.2
+Requests==2.32.3
+torch==2.0.1
+torch==2.6.0
+transformers==4.51.3

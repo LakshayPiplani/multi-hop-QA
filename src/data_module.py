@@ -74,8 +74,9 @@ def load_examples(processed_dir: str, sub_dir: str) -> List[Example]:
                                 nodes=nodes, gold_path=ordered_path))
     return examples
 
-# Usage example:
-script_dir = os.path.dirname(os.path.abspath(__file__))
-processed_dir = os.path.join(script_dir, '..', 'data', 'processed')
-examples = load_examples(processed_dir=processed_dir, sub_dir="hotpot_dev_distractor_v1")
-print(f"Loaded {len(examples)} examples")
+if __name__ == "__main__":
+    # Usage example:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    processed_dir = os.path.join(script_dir, '..', 'data', 'processed')
+    examples = load_examples(processed_dir=processed_dir, sub_dir="hotpot_dev_distractor_v1")
+    print(f"Loaded {len(examples)} examples")
