@@ -1,2 +1,21 @@
-# multi-hop-QA
-Llama trained for multi-hop question answering using Knowledge Graph based Supervised Fine Tuning and Critique Fine Tuning
+# Multi-hop-QA
+
+Llama trained for Multi-Hop Question Answering using Knowledge Graph based Supervised Fine Tuning and Critique Fine Tuning
+
+## Clone the repository
+```
+git clone https://github.com/LakshayPiplani/multi-hop-QA.git
+```
+
+## Dataset
+
+Download the HOTPOT QA dataset from the official URLS
+
+```
+cd ~/data/scripts
+python download_data.py --output_dir <output_directory> --splits <split1> <split2> <split3>
+```
+
+You can specify the output directory and the splits you want to download using command line arguments. You can download train, dev and test splits.
+
+By default, it will download the train and dev splits and save them in the "data/raw" directory. 

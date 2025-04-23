@@ -1,4 +1,4 @@
-import os, argparse, requests
+import os, argparse, requests # type: ignore
 
 """
     This script downloads the HotpotQA distractor dataset from the official URLs at http://curtis.ml.cmu.edu/datasets/hotpot/
@@ -6,7 +6,7 @@ import os, argparse, requests
     The dataset is available in three splits: train, dev, and test.
 
     To run this script, use the following command:
-        python download_data.py --output_dir <output_directory> --splits train test dev
+        python download_data.py --output_dir <output_directory> --splits <split1> <split2> ...
     
     By default, it will download the train and dev splits and save them in the "data/raw" directory.
     You can specify the output directory and the splits you want to download using command line arguments.
