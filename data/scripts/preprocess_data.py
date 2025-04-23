@@ -1,13 +1,17 @@
-import os
-import argparse
-import json
+import os, argparse, json
 from datasets import Dataset
+from pathlib import Path
 
+"""
+    before running this script, please dowload the dataset by running.
+        download_data.py
+
+    
+"""
 
 def preprocess(raw_dir: str, processed_dir: str, file_names: list[str]) -> None:
     """
-    Load local HotpotQA JSON files (array-of-objects), normalize fields,
-    and save as Arrow datasets.
+    Load local HotpotQA JSON files (array-of-objects), normalize fields, and save as Arrow datasets.
 
     Each JSON file is a list of dicts with keys:
       _id: str
@@ -82,17 +86,17 @@ def preprocess(raw_dir: str, processed_dir: str, file_names: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    # fsspec.config.conf['default_block_size'] = 20 * 2**20  # 20 MiB
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    raw_dir = os.path.join(script_dir, '..', 'raw')
-    processed_dir = os.path.join(script_dir, '..', 'processed')
+    # find path the directory of this script
+    scriptpath = Path(os.path.dirname(os.path.abspath(__file__))).parent.absolute()
+
+    # the sub-directory raw contains the unprocessed json files of the dataset 
+    raw_dir = os.path.join(scriptpath,'raw')
+
+    processed_dir = os.path.join(scriptpath,'processed')
 
     parser = argparse.ArgumentParser(description="Preprocess HotpotQA distractor data robustly")
-    parser.add_argument("--raw_dir", type=str, default=raw_dir,
-                        help="Directory to rea raw JSON files")
-    parser.add_argument("--processed_dir", type=str, default=processed_dir,
-                        help="Directory to save processed datasets")
-    parser.add_argument("--file_names", nargs="+", default=["hotpot_dev_distractor_v1.json", "hotpot_train_v1.1.json"],
-                        help="Which files to process")
+    parser.add_argument("--raw_dir", type=str, default=raw_dir, help="Raw Dataset Directory")
+    parser.add_argument("--processed_dir", type=str, default=processed_dir, help="Processed Dataset Directory")
+    parser.add_argument("--file_names", nargs="+", default=["hotpot_dev_distractor_v1.json", "hotpot_train_v1.1.json"], help="Which files to process")
     args = parser.parse_args()
     preprocess(args.raw_dir, args.processed_dir, args.file_names)
