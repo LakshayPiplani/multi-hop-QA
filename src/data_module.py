@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 from datasets import load_from_disk, Dataset
 
+
 @dataclass
 class Node:
     pid: int
@@ -19,18 +20,18 @@ class Example:
     gold_path: List[int]
 
 
-def load_examples(processed_dir: str, split: str) -> List[Example]:
+def load_examples(processed_dir: str, sub_dir: str) -> List[Example]:
     """
-    Load processed HotpotQA Arrow dataset for a given split and return a list of Example objects.
+    Load processed HotpotQA Arrow dataset for a given sub directory and return a list of Example objects.
 
     Args:
         processed_dir: directory where Arrow datasets are saved (e.g. data/processed).
-        split: one of 'train', 'dev'.
+        sub_sir: name of sub_directory in which Arrow files live
 
     Returns:
         List of Example dataclass instances.
     """
-    path = os.path.join(processed_dir, f"hotpot_distractor_{split}")
+    path = os.path.join(processed_dir, sub_dir)
     ds: Dataset = load_from_disk(path)
 
     examples: List[Example] = []
@@ -74,5 +75,7 @@ def load_examples(processed_dir: str, split: str) -> List[Example]:
     return examples
 
 # Usage example:
-# examples = load_examples(processed_dir="data/processed", split="train")
-# print(f"Loaded {len(examples)} examples")
+script_dir = os.path.dirname(os.path.abspath(__file__))
+processed_dir = os.path.join(script_dir, '..', 'data', 'processed')
+examples = load_examples(processed_dir=processed_dir, sub_dir="hotpot_dev_distractor_v1")
+print(f"Loaded {len(examples)} examples")

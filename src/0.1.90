@@ -1,0 +1,10 @@
+Name: sentencepiece
+Version: 0.1.99
+Summary: SentencePiece python wrapper
+Home-page: https://github.com/google/sentencepiece
+Author: Taku Kudo
+Author-email: taku@google.com
+License: Apache
+Location: C:\Users\laksh\miniconda3\Lib\site-packages
+Requires: 
+Required-by: 
