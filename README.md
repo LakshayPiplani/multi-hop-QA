@@ -11,7 +11,6 @@ git clone https://github.com/LakshayPiplani/multi-hop-QA.git
 
 Download the HOTPOT QA dataset from the official URLS
 
-
 ```
 cd ~/data/scripts
 python download_data.py --output_dir <output_directory> --splits <split1> <split2> <split3>
