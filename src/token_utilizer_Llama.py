@@ -45,8 +45,12 @@ def sample_divergent(
             else:
                 wrong = random.sample(non_gold, path_len)
         else:
-            # fallback to allow repeats if too few non-gold nodes
-            wrong = random.choices(non_gold, k=path_len)
+            if len(non_gold) > 0:
+                # fallback to allow repeats if too few non-gold nodes
+                #print(non_gold, path_len)
+                wrong = random.choices(non_gold, k=path_len)
+            else:
+                continue
         wrong_paths.append(wrong)
     return wrong_paths
 
