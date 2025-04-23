@@ -11,7 +11,7 @@ from peft import LoraConfig, get_peft_model
 # Local imports: adjust according to your module names
 from data_module import Example, load_examples
 from graph_builder import build_graph
-from token_utilizer_Llama import serialize_example_llama2
+from token_utilizer_Llama import serialize_example
 
 
 def create_training_dataset(
@@ -27,10 +27,10 @@ def create_training_dataset(
     responses = []
     for ex in examples:
         graph = build_graph(ex)
-        prompt = serialize_example_llama2(ex, graph)
+        prompt = serialize_example(ex, graph)
         # The model should generate the gold candidate again as response
         # Here we assume CANDIDATE 1 is gold, so we repeat that block as the target
-        # Adjust serialize_example_llama2 to tag the gold block accordingly
+        # Adjust serialize_example to tag the gold block accordingly
         # For simplicity, we extract the gold candidate text from prompt
         # Assuming "/SYS>>" end and "/INST]" split
         # TODO: customize extraction logic
