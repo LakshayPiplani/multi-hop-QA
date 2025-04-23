@@ -54,9 +54,8 @@ def main():
 
     # Load tokenizer and tokenize datasets
     print("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B")
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+    tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     def tokenize_fn(batch):
         return tokenizer(
@@ -102,7 +101,7 @@ def main():
     # Initialize model without bitsandbytes
     print("Loading base model...")
     model = LlamaForCausalLM.from_pretrained(
-        "meta-llama/Llama-3.2-3B",
+        "meta-llama/Llama-3.2-1B",
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map={"": "cuda" if torch.cuda.is_available() else "cpu"}
     )
