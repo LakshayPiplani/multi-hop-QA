@@ -57,9 +57,12 @@ def serialize_example(ex: Example, graph: nx.DiGraph, num_divergent: int = 2) ->
     Builds a ChatML prompt with system, user question, gold paths, and
     placeholders for candidates (for Divergent GoT SFT).
     """
-    system = "<|system|> You are a careful multi-hop reasoner. Think step-by-step."
+    system = "<s>[INST] <<SYS>>\n"
+    system += "You are a careful multi-hop reasoner. Think step-by-step.\n"
+    system += "<</SYS>>\n\n"
     # Build user block
-    user = ["<|user|>", f"QUESTION: {ex.question}"]
+    system += f"QUESTION: {ex.question}\n"
+    user = []
     # Gold path
     gold = " -> ".join(str(pid) for pid in ex.gold_path)
     user.append(f"GOLD_PATH: {gold}")
@@ -75,18 +78,19 @@ def serialize_example(ex: Example, graph: nx.DiGraph, num_divergent: int = 2) ->
     # Placeholder for candidates
 
     # Candidate 1: gold path
-    user.append("CANDIDATE 1:")
+    user.append("[INST]\nCANDIDATE 1:")
     for i, pid in enumerate(ex.gold_path, start=1):
-        user.append(f"  [STEP {i}] {pid}")
-    user.append(f"  FINAL: {ex.answer}")
+        user.append(f"[STEP {i}] {pid}")
+    user.append(f"FINAL: {ex.answer}")
 
     for idx in range(2, 2+num_divergent):
         path = sample_divergent(graph = graph, gold_path = ex.gold_path, num_candidates=2)
         user.append(f"CANDIDATE {idx}:")
         for i, pid in enumerate(path, start=1):
-            user.append(f"  [STEP {i}] {pid}")
-        user.append("  FINAL: [model to fill]")
-    prompt = "\n".join([system] + user + ["<|assistant|>"])
+            user.append(f"[STEP {i}] {pid}")
+        user.append("FINAL:")
+        user.append("[/INST]</s>")
+    prompt = "\n".join([system] + user)
     return prompt
 
 # Pack prompt into token IDs
