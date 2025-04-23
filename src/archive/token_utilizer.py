@@ -1,9 +1,10 @@
 import os
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, List
 import networkx as nx
 from transformers import LlamaTokenizer
 from data_module import load_examples, Example
+import random
 
 # Compute project root based on this file's location
 def get_project_root() -> Path:
@@ -23,8 +24,35 @@ def get_tokenizer(model_name: str = "meta-llama/Llama-2-7b-chat-hf") -> LlamaTok
     return tok
 
 
+def sample_divergent(
+    graph: nx.DiGraph,
+    gold_path: List[int],
+    num_candidates: int = 2
+) -> List[List[int]]:
+    """
+    Sample `num_candidates` wrong hop sequences of the same length as gold_path
+    by randomly selecting non-gold node IDs.
+    """
+    nodes = list(graph.nodes)
+    non_gold = [n for n in nodes if n not in gold_path]
+    path_len = len(gold_path)
+    wrong_paths = []
+    for i in range(num_candidates):
+        if len(non_gold) >= path_len:
+            if i == 0:
+                wrong = [gold_path[0]]
+                wrong += random.sample(non_gold, path_len-1)
+            else:
+                wrong = random.sample(non_gold, path_len)
+        else:
+            # fallback to allow repeats if too few non-gold nodes
+            wrong = random.choices(non_gold, k=path_len)
+        wrong_paths.append(wrong)
+    return wrong_paths
+
+
 # Serialize an example and its graph into ChatML prompt for SFT
-def serialize_example(ex: Example, graph: nx.DiGraph) -> str:
+def serialize_example(ex: Example, graph: nx.DiGraph, num_divergent: int = 2) -> str:
     """
     Builds a ChatML prompt with system, user question, gold paths, and
     placeholders for candidates (for Divergent GoT SFT).
@@ -45,8 +73,19 @@ def serialize_example(ex: Example, graph: nx.DiGraph) -> str:
         etype = attr.get("type", "entail")
         user.append(f"  {u} -> {v} ({etype})")
     # Placeholder for candidates
-    user.append("CANDIDATE 1:\n  [STEP 1] ...\n  FINAL: ...")
-    user.append("CANDIDATE 2:\n  [STEP 1] ...\n  FINAL: ...")
+
+    # Candidate 1: gold path
+    user.append("CANDIDATE 1:")
+    for i, pid in enumerate(ex.gold_path, start=1):
+        user.append(f"  [STEP {i}] {pid}")
+    user.append(f"  FINAL: {ex.answer}")
+
+    for idx in range(2, 2+num_divergent):
+        path = sample_divergent(graph = graph, gold_path = ex.gold_path, num_candidates=2)
+        user.append(f"CANDIDATE {idx}:")
+        for i, pid in enumerate(path, start=1):
+            user.append(f"  [STEP {i}] {pid}")
+        user.append("  FINAL: [model to fill]")
     prompt = "\n".join([system] + user + ["<|assistant|>"])
     return prompt
 
