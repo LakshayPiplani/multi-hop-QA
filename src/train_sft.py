@@ -39,7 +39,7 @@ def main():
         data = {"text": [], "labels": []}
         for ex in examples:
             graph = build_graph(ex)
-            prompt = serialize_example_llama2(ex, graph, num_wrong=2)
+            prompt = serialize_example(ex, graph, num_wrong=2)
             # For SFT, labels = full prompt including gold candidate
             data["text"].append(prompt)
             data["labels"].append(prompt)
