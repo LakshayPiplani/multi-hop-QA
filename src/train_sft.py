@@ -23,7 +23,8 @@ from token_utilizer_Llama import serialize_example
 
 
 def main():
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("mps") if torch.backends.mps.is_available() else device
     # Resolve project root and data directories
     PROJECT_ROOT = Path(__file__).parent.parent.resolve()
     processed_dir = PROJECT_ROOT / "data" / "processed"
@@ -55,7 +56,7 @@ def main():
 
     # Load tokenizer and tokenize datasets
     print("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B")
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     def tokenize_fn(batch):
@@ -101,7 +102,8 @@ def main():
     # Initialize model without bitsandbytes
     print("Loading base model...")
     model = LlamaForCausalLM.from_pretrained(
-        "meta-llama/Llama-3.2-1B",
+        "meta-llama/Llama-3.2-3B",
+        load_in_8bit=True,
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map={"": device}
     )
@@ -156,7 +158,7 @@ def main():
 
     # Train and save
     trainer.train()
-    trainer.save_model(str(PROJECT_ROOT / "models" / "sft"))
+    trainer.save_model(str(PROJECT_ROOT / "models" / "sft1"))
 
 if __name__ == "__main__":
     main()
