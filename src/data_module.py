@@ -35,7 +35,7 @@ def load_examples(processed_dir: str, sub_dir: str) -> List[Example]:
     ds: Dataset = load_from_disk(path)
 
     examples: List[Example] = []
-    for record in ds:
+    for record in ds.select(range(500)):
         qid = record.get("_id", "")
         question = record["question"]
         answer = record.get("answer")  # may be None for test

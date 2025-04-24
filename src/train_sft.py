@@ -68,20 +68,42 @@ def main():
     tokenizer.padding_side = "right"
 
 
-    def tokenize_fn(batch, MAX_LEN = 2048):
+
+
+    def tokenize_fn(batch, MAX_LEN=2048):
         """
-        HF will automatically:
-        • return input_ids / attention_mask for `text`
-        • create labels from `text_target`, aligning & padding
-        • mask all user-side tokens in labels with -100
+        1. Tokenise the *full prompt*   → `inputs`
+        2. Tokenise the gold-only text → `labels`
+        3. Left-pad `labels` with -100 so it matches the length of `inputs`
         """
-        return tokenizer(
-            text=batch["text"],            # full prompt (question + candidates)
-            text_target=batch["labels"],   # gold chain only
+
+        # 1️⃣ Full prompt (question + paragraphs + all candidates)
+        enc_full = tokenizer(
+            batch["text"],
             truncation=True,
             max_length=MAX_LEN,
-            padding="longest"              # dynamic pad to longest in batch
+            padding="longest",
         )
+
+        # 2️⃣ Gold chain only
+        enc_gold = tokenizer(
+            batch["labels"],
+            truncation=True,
+            max_length=MAX_LEN,
+            # we pad left so the gold sequence aligns to the right end of the prompt
+            padding="longest",
+        )
+
+        # 3️⃣ Build label tensor, mask non-assistant tokens with -100
+        labels = []
+        for inp_ids, gold_ids in zip(enc_full["input_ids"], enc_gold["input_ids"]):
+            pad_len  = len(inp_ids) - len(gold_ids)
+            # pad left with -100 to match length
+            labels.append([-100] * pad_len + gold_ids)
+
+        enc_full["labels"] = labels
+        return enc_full
+
 
 
     print("Tokenizing training data...")
@@ -105,13 +127,13 @@ def main():
             "meta-llama/Llama-3.2-1B",
             quantization_config=bnb_config,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto"
+            device_map="cpu"
         )
     else:
         model = LlamaForCausalLM.from_pretrained(
             "meta-llama/Llama-3.2-1B",
             torch_dtype=torch.float32,
-            device_map="auto"
+            device_map="cpu"
         )
 
     # Apply LoRA adapters

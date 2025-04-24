@@ -45,51 +45,66 @@ def sample_wrong_paths(
         wrong_paths.append(wrong)
     return wrong_paths
 
-def serialize_example(ex: Example, graph: nx.DiGraph, num_divergent: int = 2) -> str:
+def serialize_example(
+    ex: Example,
+    graph: nx.DiGraph,
+    num_divergent: int = 2,
+) -> tuple[str, str]:
     """
-    Build a Llama-2 Chat prompt with one INST block containing:
-      - system message
-      - QUESTION + GOLD_PATH + graph structure
-      - CANDIDATE 1 (gold) + CANDIDATE 2…k (divergent)
+    Build a single-block Llama-2 prompt.
+
+    • The *entire* conversation (system + user + all candidates) lives
+      inside ONE  `[INST] ... [/INST]`.
+    • Candidate 1 is the gold chain+answer and will be used as the *label*.
+    • Candidate 2..k are divergent and get loss-masked (context only).
+
+    Returns
+    -------
+    full_prompt : str   # what you feed as `text`
+    gold_only   : str   # what you feed as `text_target`
     """
-    lines = []
-    # Open INST + system
+
+    lines: list[str] = []
+
+    # ── open INST + system ─────────────────────────
     lines.append("<s>[INST] <<SYS>>")
     lines.append("You are a careful multi-hop reasoner. Think step-by-step.")
-    lines.append("<</SYS>>\n")  # end of system + blank line
-    
-    # User prompt inside the same INST
+    lines.append("<</SYS>>\n")                     # blank line terminates system
+
+    # ── user content: question + full paragraphs ──
     lines.append(f"QUESTION: {ex.question}")
-    gold_str = " -> ".join(str(pid) for pid in ex.gold_path)
-    lines.append(f"GOLD_PATH: {gold_str}\n")
-    
-    # Graph structure
-    lines.append("NODES:")
+    lines.append("PARAGRAPHS:")
     for pid, data in graph.nodes(data=True):
-        lines.append(f"  {pid}: {data.get('title','')}")
-    lines.append("EDGES:")
-    for u, v, attr in graph.edges(data=True):
-        lines.append(f"  {u} -> {v} ({attr.get('type','entail')})")
-    lines.append("")  # blank line before candidates
-    
-    # Candidate 1 (gold)
+        title      = data.get("title", "")
+        sentences  = " ".join(data.get("sentences", []))  # join all sentences
+        # include both title and body
+        lines.append(f"  {pid}: {title} || {sentences}")
+    lines.append("")                                    # blank line before candidates
+
+    # ── Candidate-1 (gold)  ───────────────────────
     lines.append("CANDIDATE 1:")
+    gold_lines: list[str] = []           # will become the label slice
     for i, pid in enumerate(ex.gold_path, start=1):
-        lines.append(f"  [STEP {i}] {pid}")
-    lines.append(f"  FINAL: {ex.answer or ''}\n")
-    
-    # Sample and emit divergent candidates
+        gold_lines.append(f"[STEP {i}] {pid}")
+    gold_lines.append(f"FINAL: {ex.answer}")
+    lines.extend("  " + ln for ln in gold_lines)   # indent in prompt
+
+    # ── Divergent candidates  ─────────────────────
     wrong_paths = sample_wrong_paths(graph, ex.gold_path, num_divergent)
     for idx, path in enumerate(wrong_paths, start=2):
-        lines.append(f"CANDIDATE {idx}:")
+        lines.append(f"\nCANDIDATE {idx}:")
         for i, pid in enumerate(path, start=1):
             lines.append(f"  [STEP {i}] {pid}")
-        lines.append("  FINAL:\n")  # model should fill this
-    
-    # Close INST and EOS
+        lines.append("  FINAL:")
+
+    # ── close INST and EOS ────────────────────────
     lines.append("[/INST]</s>")
-    
-    return "\n".join(lines)
+
+    full_prompt = "\n".join(lines)
+    gold_text   = "\n".join(gold_lines)
+
+    return full_prompt, gold_text
+
 
 # Pack prompt into token IDs
 def pack_prompt(prompt: str, tokenizer: LlamaTokenizer, max_seq_len: int = 2048) -> dict:
