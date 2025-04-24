@@ -18,7 +18,7 @@ def get_processed_dirs() -> list[str]:
     ]
 
 # Initialize the tokenizer
-def get_tokenizer(model_name: str = "meta-llama/Llama-2-7b-chat-hf") -> LlamaTokenizer:
+def get_tokenizer(model_name: str = "meta-llama/Llama-3.2-1B") -> LlamaTokenizer:
     tok = LlamaTokenizer.from_pretrained(model_name)
     tok.pad_token = tok.eos_token
     return tok

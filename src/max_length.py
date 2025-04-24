@@ -17,7 +17,7 @@ def analyze_paragraph_lengths(processed_dir: str, sub_dirs: list[str], use_token
         use_tokenizer: If True, measure lengths in tokens; otherwise, measure word counts.
     """
     # Initialize tokenizer if needed
-    tokenizer = LlamaTokenizer.from_pretrained('meta-llama/Llama-2-7b-chat-hf') if use_tokenizer else None
+    tokenizer = LlamaTokenizer.from_pretrained('meta-llama/Llama-3.2-1B') if use_tokenizer else None
 
     stats = {}
     for sub in sub_dirs:
