@@ -105,7 +105,7 @@ def main():
         "meta-llama/Llama-3.2-3B",
         load_in_8bit=True,
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map={"": device}
+        device_map="auto"
     )
 
     # Apply LoRA adapters
