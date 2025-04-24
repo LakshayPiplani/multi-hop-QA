@@ -23,6 +23,7 @@ from token_utilizer_Llama import serialize_example
 
 
 def main():
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     # Resolve project root and data directories
     PROJECT_ROOT = Path(__file__).parent.parent.resolve()
     processed_dir = PROJECT_ROOT / "data" / "processed"
@@ -97,13 +98,12 @@ def main():
         remove_columns=["text", "labels"] 
     )
 
-    device = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
     # Initialize model without bitsandbytes
     print("Loading base model...")
     model = LlamaForCausalLM.from_pretrained(
         "meta-llama/Llama-3.2-1B",
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map={"": "cuda" if torch.cuda.is_available() else "cpu"}
+        device_map={"": device}
     )
 
     # Apply LoRA adapters
