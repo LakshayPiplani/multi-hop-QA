@@ -101,7 +101,7 @@ def main():
 
     # Training arguments
     training_args = TrainingArguments(
-        output_dir=str(PROJECT_ROOT / "models" / "sft"),
+        output_dir=str(PROJECT_ROOT / "models" / "sft-gpt2"),
         per_device_train_batch_size=4,
         per_device_eval_batch_size=4,
         gradient_accumulation_steps=8,
@@ -133,7 +133,7 @@ def main():
 
     # Train and save
     trainer.train()
-    trainer.save_model(str(PROJECT_ROOT / "models" / "sft"))
+    trainer.save_model(str(PROJECT_ROOT / "models" / "sft-gpt2"))
 
 if __name__ == "__main__":
     main()
