@@ -12,6 +12,7 @@ from token_utilizer_Llama import serialize_example  # reuse your serializer
 # ── Config ───────────────────────────────────────────────────────────────────
 PROJECT_ROOT   = Path(__file__).parent.parent.resolve()
 MODEL_DIR      = PROJECT_ROOT / "models" / "sft1"          # must match train_sft.py
+BASE_MODEL_ID  = "meta-llama/Llama-3.2-1B"           # download from HF
 PROCESSED_DIR  = PROJECT_ROOT / "data" / "processed"
 DEV_SUBDIR     = "hotpot_dev_distractor_v1"                # evaluate on dev
 BATCH_SIZE     = 4                                         # adjust for GPU RAM
@@ -31,24 +32,22 @@ def extract_answer(text: str) -> str:
     if not m:
         return ""
     answer = m.group(1).strip()
-    # stop at first tag or newline like [/INST] or <s>
     answer = re.split(r"(\n|\[/INST]|<s>|</s>)", answer, maxsplit=1)[0]
     return answer.strip().lower()
 
 # ── Load LoRA-tuned model & tokenizer ────────────────────────────────────────
 print("Loading fine-tuned model …")
-# Load base model architecture from local adapter folder
+# Load base model from HF and attach LoRA adapter from disk
 base_model = AutoModelForCausalLM.from_pretrained(
-    MODEL_DIR,
+    BASE_MODEL_ID,
     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     device_map="cpu"
 )
-# Attach LoRA adapters saved alongside
 model = PeftModel.from_pretrained(base_model, MODEL_DIR)
 model.eval()
 
-# Load tokenizer saved in adapter folder
-tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, padding_side="left")
+# Load tokenizer from base model ID (to get special tokens, padding, etc.)
+tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, padding_side="left")
 tokenizer.pad_token = tokenizer.eos_token
 
 # ── Load dev examples ────────────────────────────────────────────────────────
@@ -65,9 +64,8 @@ for i in tqdm(range(0, len(examples), BATCH_SIZE)):
     prompts = []
     for ex in batch_ex:
         g = build_graph(ex)
-        # serialize WITHOUT gold path/candidates
         prompt = serialize_example(ex, g, num_divergent=0).split("CANDIDATE 1:")[0]
-        prompt += "[INST]\n"  # ask model to answer
+        prompt += "[INST]\n"
         prompts.append(prompt)
 
     tok = tokenizer(

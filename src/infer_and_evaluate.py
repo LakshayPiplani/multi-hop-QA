@@ -12,6 +12,7 @@ from token_utilizer_Llama import serialize_example  # reuse your serializer
 # ── Config ───────────────────────────────────────────────────────────────────
 PROJECT_ROOT   = Path(__file__).parent.parent.resolve()
 MODEL_DIR      = PROJECT_ROOT / "models" / "sft1"          # must match train_sft.py
+BASE_MODEL_ID = "meta-llama/Llama-3.2-1B"
 PROCESSED_DIR  = PROJECT_ROOT / "data" / "processed"
 DEV_SUBDIR     = "hotpot_dev_distractor_v1"                # evaluate on dev
 BATCH_SIZE     = 4                                         # adjust for GPU RAM
@@ -39,7 +40,7 @@ def extract_answer(text: str) -> str:
 print("Loading fine-tuned model …")
 # Load base model architecture from local adapter folder
 base_model = AutoModelForCausalLM.from_pretrained(
-    MODEL_DIR,
+    BASE_MODEL_ID,
     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     device_map="auto"
 )
@@ -48,7 +49,7 @@ model = PeftModel.from_pretrained(base_model, MODEL_DIR)
 model.eval()
 
 # Load tokenizer saved in adapter folder
-tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, padding_side="left")
+tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, padding_side="left")
 tokenizer.pad_token = tokenizer.eos_token
 
 # ── Load dev examples ────────────────────────────────────────────────────────
