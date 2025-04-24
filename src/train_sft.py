@@ -13,8 +13,10 @@ from transformers import (
     Trainer,
     TrainingArguments,
     DataCollatorWithPadding,
-    DataCollatorForSeq2Seq
+    DataCollatorForSeq2Seq,
+    BitsAndBytesConfig
 )
+
 from peft import LoraConfig, get_peft_model
 
 from data_module import load_examples
@@ -101,9 +103,10 @@ def main():
 
     # Initialize model without bitsandbytes
     print("Loading base model...")
+    bnb_config = BitsAndBytesConfig(load_in_8bit=True)
     model = LlamaForCausalLM.from_pretrained(
         "meta-llama/Llama-3.2-3B",
-        load_in_8bit=True,
+        quantization_config=bnb_config,
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         device_map="auto"
     )
@@ -119,7 +122,7 @@ def main():
         task_type="CAUSAL_LM"
     )
     model = get_peft_model(model, peft_config)
-
+    torch.cuda.empty_cache()
     fp16_flag = True if torch.cuda.is_available() else False
     # Training arguments
     training_args = TrainingArguments(
@@ -158,7 +161,7 @@ def main():
 
     # Train and save
     trainer.train()
-    trainer.save_model(str(PROJECT_ROOT / "models" / "sft1"))
+    trainer.save_model(str(PROJECT_ROOT / "models" / "sft"))
 
 if __name__ == "__main__":
     main()
