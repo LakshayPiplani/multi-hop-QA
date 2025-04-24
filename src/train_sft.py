@@ -6,8 +6,8 @@ from pathlib import Path
 import torch
 from datasets import Dataset
 from transformers import (
-    LlamaTokenizer,
-    LlamaForCausalLM,
+    AutoTokenizer,
+    AutoModelForCausalLM,
     Trainer,
     TrainingArguments,
     DataCollatorWithPadding
@@ -40,7 +40,6 @@ def main():
         for ex in examples:
             graph = build_graph(ex)
             prompt = serialize_example(ex, graph, num_divergent=2)
-            # For SFT, labels = full prompt including gold candidate
             data["text"].append(prompt)
             data["labels"].append(prompt)
         return Dataset.from_dict(data)
@@ -48,26 +47,32 @@ def main():
     train_ds = make_dataset(train_examples)
     dev_ds = make_dataset(dev_examples)
 
-    # Load tokenizer and tokenize datasets
+    # Load tokenizer
     print("Loading tokenizer...")
-    tokenizer = LlamaTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+    tokenizer = AutoTokenizer.from_pretrained("gpt2")
+    # Use EOS token for padding
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
+    # Load model
+    print("Loading base model...")
+    model = AutoModelForCausalLM.from_pretrained(
+        "gpt2",
+        torch_dtype=torch.float16,
+        device_map="auto"
+    )
+    # Resize embeddings for pad token
+    model.resize_token_embeddings(len(tokenizer))
+
+    # Tokenization function using text_target
     def tokenize_fn(batch):
         tokenized = tokenizer(
-            batch["text"],
+            text=batch["text"],
+            text_target=batch["labels"],
             truncation=True,
-            max_length=2048,
-            padding=False
+            max_length=1024,
+            padding="longest"
         )
-        # Tokenize labels separately
-        with tokenizer.as_target_tokenizer():
-            labels = tokenizer(
-                batch["labels"],
-                truncation=True,
-                max_length=2048,
-                padding=False
-            )["input_ids"]
-        tokenized["labels"] = labels
         return tokenized
 
     print("Tokenizing training data...")
@@ -83,25 +88,16 @@ def main():
         remove_columns=["text", "labels"]
     )
 
-    # Initialize model without bitsandbytes
-    print("Loading base model...")
-    model = LlamaForCausalLM.from_pretrained(
-        "meta-llama/Llama-2-7b-chat-hf",
-        torch_dtype=torch.float16,
-        device_map="auto"
-    )
-
     # Apply LoRA adapters
-    print("Applying LoRA adapters...")
-    peft_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
-        target_modules=["q_proj", "v_proj"],
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM"
-    )
-    model = get_peft_model(model, peft_config)
+    # print("Applying LoRA adapters...")
+    # peft_config = LoraConfig(
+    #     r=16,
+    #     lora_alpha=32,
+    #     target_modules=["c_attn", "c_proj"],
+    #     lora_dropout=0.05,
+    #     task_type="CAUSAL_LM"
+    # )
+    # model = get_peft_model(model, peft_config)
 
     # Training arguments
     training_args = TrainingArguments(
@@ -120,7 +116,11 @@ def main():
         report_to=["none"]
     )
 
-    data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
+    # Data collator
+    data_collator = DataCollatorWithPadding(
+        tokenizer=tokenizer,
+        pad_to_multiple_of=8
+    )
 
     trainer = Trainer(
         model=model,

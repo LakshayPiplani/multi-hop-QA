@@ -2,7 +2,7 @@ import os
 import argparse
 from pathlib import Path
 from datasets import load_from_disk
-from transformers import LlamaTokenizer
+from transformers import AutoTokenizer
 
 from huggingface_hub import login
 login(token="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")
@@ -17,7 +17,7 @@ def analyze_paragraph_lengths(processed_dir: str, sub_dirs: list[str], use_token
         use_tokenizer: If True, measure lengths in tokens; otherwise, measure word counts.
     """
     # Initialize tokenizer if needed
-    tokenizer = LlamaTokenizer.from_pretrained('meta-llama/Llama-2-7b-chat-hf') if use_tokenizer else None
+    tokenizer = AutoTokenizer.from_pretrained('gpt2') if use_tokenizer else None
 
     stats = {}
     for sub in sub_dirs:
