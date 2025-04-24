@@ -30,9 +30,14 @@ def main():
     # Resolve project root and data directories
     PROJECT_ROOT = Path(__file__).parent.parent.resolve()
     processed_dir = PROJECT_ROOT / "data" / "processed"
-    #train_subdir = "hotpot_train_v1.1"
-    train_subdir = "hotpot_dev_distractor_v1"
-    dev_subdir = "hotpot_dev_distractor_v1"
+
+    # finding list of subdirectories in processed_dir
+    sub_dirs = [d for d in os.listdir(processed_dir) if os.path.isdir(os.path.join(processed_dir, d))]
+    train_subdir, dev_subdir = sub_dirs if 'train' in sub_dirs[0] else sub_dirs[::-1]
+    print(f"Subdirectories in {processed_dir}: {sub_dirs}")
+    print(f"Using {train_subdir} for training and {dev_subdir} for evaluation")
+    #train_subdir = "hotpot_dev_distractor_v1"
+    #dev_subdir = "hotpot_dev_distractor_v1"
 
     # Load examples
     print("Loading training examples...")
@@ -58,7 +63,7 @@ def main():
 
     # Load tokenizer and tokenize datasets
     print("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B")
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     def tokenize_fn(batch):
@@ -103,13 +108,20 @@ def main():
 
     # Initialize model without bitsandbytes
     print("Loading base model...")
-    bnb_config = BitsAndBytesConfig(load_in_4bit=True)
-    model = LlamaForCausalLM.from_pretrained(
-        "meta-llama/Llama-3.2-3B",
-        quantization_config=bnb_config,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto"
-    )
+    if torch.cuda.is_available():
+        bnb_config = BitsAndBytesConfig(load_in_4bit=True)
+        model = LlamaForCausalLM.from_pretrained(
+            "meta-llama/Llama-3.2-1B",
+            quantization_config=bnb_config,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            device_map="auto"
+        )
+    else:
+        model = LlamaForCausalLM.from_pretrained(
+            "meta-llama/Llama-3.2-1B",
+            torch_dtype=torch.float32,
+            device_map="auto"
+        )
 
     # Apply LoRA adapters
     print("Applying LoRA adapters...")

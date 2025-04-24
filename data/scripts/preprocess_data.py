@@ -35,6 +35,9 @@ def preprocess(raw_dir: str, processed_dir: str, file_names: list[str]) -> None:
             raise ValueError(f"Expected top-level list in JSON, got {type(records)}")
         print(f"Loaded {len(records)} records; normalizing fields...")
         normalized = []
+        trim = 20000 if len(records) > 20000 else len(records)
+        records = records[:trim]  # Limit to first 20k records for testing
+        print(f"Trimming to {len(records)} records for file '{file_name}'")
         for rec in records:
             rec_norm = {}
             # Copy primitive fields

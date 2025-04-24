@@ -1,5 +1,5 @@
 import os, argparse, requests # type: ignore
-
+from pathlib import Path
 """
     This script downloads the HotpotQA distractor dataset from the official URLs at http://curtis.ml.cmu.edu/datasets/hotpot/
     and saves it in the specified directory.
@@ -39,8 +39,11 @@ def main(output_dir, splits):
 
 if __name__ == "__main__":
     # take arguments from cmd and go to main
+    scriptpath = Path(os.path.dirname(os.path.abspath(__file__))).parent.absolute()
+    # the sub-directory raw contains the unprocessed json files of the dataset 
+    raw_dir = os.path.join(scriptpath,'raw')
     parser = argparse.ArgumentParser(description = "Download HotpotQA data")
-    parser.add_argument("--output_dir", type=str, default="data/raw", help="Directory to save raw JSON files")
+    parser.add_argument("--output_dir", type=str, default=raw_dir, help="Directory to save raw JSON files")
     parser.add_argument("--splits",     type=str, nargs="+", default=["train","dev"], help="Which splits to download")
     args = parser.parse_args()
     main(args.output_dir, args.splits)

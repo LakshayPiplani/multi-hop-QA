@@ -62,6 +62,10 @@ def main():
     project_root = os.path.dirname(script_dir)
     processed_dir = os.path.join(project_root, "data", "processed")
 
+
+    # finding list of subdirectories in processed_dir
+    sub_dirs = [d for d in os.listdir(processed_dir) if os.path.isdir(os.path.join(processed_dir, d))]
+    print(f"Subdirectories in {processed_dir}: {sub_dirs}")
     # Define your processed subdirectories
     sub_dirs = ["hotpot_dev_distractor_v1", "hotpot_train_v1.1"]
 
