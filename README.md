@@ -2,6 +2,10 @@
 
 Llama trained for Multi-Hop Question Answering using Knowledge Graph based Supervised Fine Tuning and Critique Fine Tuning
 
+This final project has been done by,
+Lakshay Piplani ljp5718@psu.edu
+Durva Dev dbd5616@psu.edu
+
 ## Clone the repository
 ```
 git clone https://github.com/LakshayPiplani/multi-hop-QA.git
