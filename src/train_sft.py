@@ -109,8 +109,8 @@ def main():
     # Apply LoRA adapters
     print("Applying LoRA adapters...")
     peft_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
+        r=8,
+        lora_alpha=16,
         target_modules=["q_proj", "v_proj"],
         lora_dropout=0.05,
         bias="none",
@@ -122,8 +122,8 @@ def main():
     # Training arguments
     training_args = TrainingArguments(
         output_dir=str(PROJECT_ROOT / "models" / "sft"),
-        per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
+        per_device_train_batch_size=2,
+        per_device_eval_batch_size=2,
         gradient_accumulation_steps=8,
         num_train_epochs=3,
         learning_rate=2e-5,
