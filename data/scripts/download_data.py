@@ -10,6 +10,9 @@ from pathlib import Path
     
     By default, it will download the train and dev splits and save them in the "data/raw" directory.
     You can specify the output directory and the splits you want to download using command line arguments.
+
+    alternatively, you can unzip the file processed.zip in the data directory
+    for macos, linux: unzip processed.zip
 """
 
 URLS = {

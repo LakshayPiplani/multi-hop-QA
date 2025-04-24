@@ -7,7 +7,7 @@ from pathlib import Path
        python download_data.py --output_dir <output_directory> --splits <split1> <split2> ...
 """
 
-def preprocess(raw_dir: str, processed_dir: str, file_names: list[str]) -> None:
+def preprocess(raw_dir: str, processed_dir: str, file_names: list[str], size: int) -> None:
     """
     Load local HotpotQA JSON files (array-of-objects), normalize fields, and save as Arrow datasets.
 
@@ -35,7 +35,7 @@ def preprocess(raw_dir: str, processed_dir: str, file_names: list[str]) -> None:
             raise ValueError(f"Expected top-level list in JSON, got {type(records)}")
         print(f"Loaded {len(records)} records; normalizing fields...")
         normalized = []
-        trim = 15000 if len(records) > 15000 else len(records)
+        trim = size if len(records) > size else len(records)
         records = records[:trim]  # Limit to first 20k records for testing
         print(f"Trimming to {len(records)} records for file '{file_name}'")
         for rec in records:
@@ -100,5 +100,6 @@ if __name__ == "__main__":
     parser.add_argument("--raw_dir", type=str, default=raw_dir, help="Raw Dataset Directory")
     parser.add_argument("--processed_dir", type=str, default=processed_dir, help="Processed Dataset Directory")
     parser.add_argument("--file_names", nargs="+", default=file_names, help="Files to process")
+    parser.add_argument("--size",       type=int, default=15000, help="Maximum size of the training set")
     args = parser.parse_args()
-    preprocess(args.raw_dir, args.processed_dir, args.file_names)
+    preprocess(args.raw_dir, args.processed_dir, args.file_names, args.size)
