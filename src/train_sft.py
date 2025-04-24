@@ -22,6 +22,7 @@ from graph_builder import build_graph
 from token_utilizer_Llama import serialize_example
 
 MODEL_ID = "gpt2"
+MAX_LEN=1024
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -69,7 +70,7 @@ def main():
 
 
 
-    def tokenize_fn(batch, MAX_LEN=2048):
+    def tokenize_fn(batch, MAX_LEN=MAX_LEN):
         """
         1. Tokenise the *full prompt*   → `inputs`
         2. Tokenise the gold-only text → `labels`

@@ -7,6 +7,7 @@ from data_module import load_examples, Example
 import random
 
 MODEL_ID = "gpt2"
+MAX_LEN=1024
 
 # Compute project root based on this file's location
 def get_project_root() -> Path:
@@ -109,7 +110,7 @@ def serialize_example(
 
 
 # Pack prompt into token IDs
-def pack_prompt(prompt: str, tokenizer: LlamaTokenizer, max_seq_len: int = 2048) -> dict:
+def pack_prompt(prompt: str, tokenizer: LlamaTokenizer, max_seq_len: int = MAX_LEN) -> dict:
     tokens = tokenizer(
         prompt,
         truncation=True,
