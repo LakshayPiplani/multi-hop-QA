@@ -41,7 +41,7 @@ print("Loading fine-tuned model …")
 base_model = AutoModelForCausalLM.from_pretrained(
     MODEL_DIR,
     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    device_map="auto"
+    device_map="cpu"
 )
 # Attach LoRA adapters saved alongside
 model = PeftModel.from_pretrained(base_model, MODEL_DIR)
