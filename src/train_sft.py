@@ -67,14 +67,15 @@ def main():
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     def tokenize_fn(batch):
-        return tokenizer(
+        tokens =  tokenizer(
             batch["text"],
-            text_target=batch["labels"],  # Use text_target for labels
+            #text_target=batch["labels"],  # Use text_target for labels
             truncation=True,
             max_length=2048,
             padding="max_length"  # Changed to max_length padding
         )
-    
+        tokens["labels"] = tokens["input_ids"].copy()
+        return tokens
         tokenized = tokenizer(
             batch["text"],
             truncation=True,
@@ -139,10 +140,10 @@ def main():
     # Training arguments
     training_args = TrainingArguments(
         output_dir=str(PROJECT_ROOT / "models" / "sft2"),
-        per_device_train_batch_size=2,
-        per_device_eval_batch_size=2,
-        gradient_accumulation_steps=8,
-        num_train_epochs=3,
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
+        gradient_accumulation_steps=12,
+        num_train_epochs=2,
         learning_rate=2e-5,
         eval_strategy="epoch",
         save_strategy="epoch",
@@ -150,8 +151,7 @@ def main():
         logging_steps=50,
         save_total_limit=2,
         fp16=fp16_flag,
-        report_to=["none"],
-        label_names=["labels"]
+        report_to=["none"]
     )
 
     #data_collator = DataCollatorWithPadding(tokenizer, padding= True)
