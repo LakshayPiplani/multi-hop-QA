@@ -103,7 +103,7 @@ def main():
 
     # Initialize model without bitsandbytes
     print("Loading base model...")
-    bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+    bnb_config = BitsAndBytesConfig(load_in_4bit=True)
     model = LlamaForCausalLM.from_pretrained(
         "meta-llama/Llama-3.2-3B",
         quantization_config=bnb_config,
