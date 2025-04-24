@@ -6,6 +6,8 @@ from transformers import LlamaTokenizer
 from data_module import load_examples, Example
 import random
 
+MODEL_ID = "meta-llama/Llama-3.2-1B"
+
 # Compute project root based on this file's location
 def get_project_root() -> Path:
     return Path(__file__).parent.parent.resolve()
@@ -18,7 +20,7 @@ def get_processed_dirs() -> list[str]:
     ]
 
 # Initialize the tokenizer
-def get_tokenizer(model_name: str = "meta-llama/Llama-3.2-1B") -> LlamaTokenizer:
+def get_tokenizer(model_name: str = MODEL_ID) -> LlamaTokenizer:
     tok = LlamaTokenizer.from_pretrained(model_name)
     tok.pad_token = tok.eos_token
     return tok
@@ -87,7 +89,7 @@ def serialize_example(
     for i, pid in enumerate(ex.gold_path, start=1):
         gold_lines.append(f"[STEP {i}] {pid}")
     gold_lines.append(f"FINAL: {ex.answer}")
-    lines.extend("  " + ln for ln in gold_lines)   # indent in prompt
+    lines.extend("  " + ln for ln in gold_lines)   # indent in prompts
 
     # ── Divergent candidates  ─────────────────────
     wrong_paths = sample_wrong_paths(graph, ex.gold_path, num_divergent)

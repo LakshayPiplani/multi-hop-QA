@@ -7,9 +7,7 @@ import torch
 from datasets import Dataset
 from transformers import (
     AutoTokenizer,
-    AutoModelForCausalLM,
-    LlamaTokenizer,
-    LlamaForCausalLM,
+    AutoModelForCausalLm,
     Trainer,
     TrainingArguments,
     DataCollatorWithPadding,
@@ -23,6 +21,7 @@ from data_module import load_examples
 from graph_builder import build_graph
 from token_utilizer_Llama import serialize_example
 
+MODEL_ID = "meta-llama/Llama-3.2-1B"
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -63,7 +62,7 @@ def main():
 
     # Load tokenizer and tokenize datasets
     print("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
@@ -123,15 +122,15 @@ def main():
     print("Loading base model...")
     if torch.cuda.is_available():
         bnb_config = BitsAndBytesConfig(load_in_4bit=True)
-        model = LlamaForCausalLM.from_pretrained(
-            "meta-llama/Llama-3.2-1B",
+        model = AutoModelForCausalLm.from_pretrained(
+            MODEL_ID,
             quantization_config=bnb_config,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             device_map="cpu"
         )
     else:
-        model = LlamaForCausalLM.from_pretrained(
-            "meta-llama/Llama-3.2-1B",
+        model = AutoModelForCausalLm.from_pretrained(
+            MODEL_ID,
             torch_dtype=torch.float32,
             device_map="cpu"
         )
