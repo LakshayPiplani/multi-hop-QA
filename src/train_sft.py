@@ -7,24 +7,36 @@ import torch
 from datasets import Dataset
 from transformers import (
     AutoTokenizer,
-    AutoModelForCausalLM,
+    AutoModelForCausalLm,
     Trainer,
     TrainingArguments,
-    DataCollatorWithPadding
+    DataCollatorWithPadding,
+    DataCollatorForSeq2Seq,
+    BitsAndBytesConfig
 )
+
 from peft import LoraConfig, get_peft_model
 
 from data_module import load_examples
 from graph_builder import build_graph
 from token_utilizer_Llama import serialize_example
 
+MODEL_ID = "gpt2"
 
 def main():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("mps") if torch.backends.mps.is_available() else device
     # Resolve project root and data directories
     PROJECT_ROOT = Path(__file__).parent.parent.resolve()
     processed_dir = PROJECT_ROOT / "data" / "processed"
-    train_subdir = "hotpot_train_v1.1"
-    dev_subdir = "hotpot_dev_distractor_v1"
+
+    # finding list of subdirectories in processed_dir
+    sub_dirs = [d for d in os.listdir(processed_dir) if os.path.isdir(os.path.join(processed_dir, d))]
+    train_subdir, dev_subdir = sub_dirs if 'train' in sub_dirs[0] else sub_dirs[::-1]
+    print(f"Subdirectories in {processed_dir}: {sub_dirs}")
+    print(f"Using {train_subdir} for training and {dev_subdir} for evaluation")
+    #train_subdir = "hotpot_dev_distractor_v1"
+    #dev_subdir = "hotpot_dev_distractor_v1"
 
     # Load examples
     print("Loading training examples...")
@@ -39,41 +51,59 @@ def main():
         data = {"text": [], "labels": []}
         for ex in examples:
             graph = build_graph(ex)
-            prompt = serialize_example(ex, graph, num_divergent=2)
+            prompt, gold_only = serialize_example(ex, graph, num_divergent=2)
+            # For SFT, labels = full prompt including gold candidate
             data["text"].append(prompt)
-            data["labels"].append(prompt)
+            data["labels"].append(gold_only)
         return Dataset.from_dict(data)
 
     train_ds = make_dataset(train_examples)
     dev_ds = make_dataset(dev_examples)
 
-    # Load tokenizer
+    # Load tokenizer and tokenize datasets
     print("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    # Use EOS token for padding
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
 
-    # Load model
-    print("Loading base model...")
-    model = AutoModelForCausalLM.from_pretrained(
-        "gpt2",
-        torch_dtype=torch.float16,
-        device_map="auto"
-    )
-    # Resize embeddings for pad token
-    model.resize_token_embeddings(len(tokenizer))
 
-    # Tokenization function using text_target
-    def tokenize_fn(batch):
-        tokenized = tokenizer(
-            text=batch["text"],
-            text_target=batch["labels"],
+
+
+    def tokenize_fn(batch, MAX_LEN=2048):
+        """
+        1. Tokenise the *full prompt*   → `inputs`
+        2. Tokenise the gold-only text → `labels`
+        3. Left-pad `labels` with -100 so it matches the length of `inputs`
+        """
+
+        # Full prompt (question + paragraphs + all candidates)
+        enc_full = tokenizer(
+            batch["text"],
             truncation=True,
-            max_length=1024,
-            padding="longest"
+            max_length=MAX_LEN,
+            padding="longest",
         )
-        return tokenized
+
+        # Gold chain only
+        enc_gold = tokenizer(
+            batch["labels"],
+            truncation=True,
+            max_length=MAX_LEN,
+            # we pad left so the gold sequence aligns to the right end of the prompt
+            padding="longest",
+        )
+
+        # Build label tensor, mask non-assistant tokens with -100
+        labels = []
+        for inp_ids, gold_ids in zip(enc_full["input_ids"], enc_gold["input_ids"]):
+            pad_len  = len(inp_ids) - len(gold_ids)
+            # pad left with -100 to match length
+            labels.append([-100] * pad_len + gold_ids)
+
+        enc_full["labels"] = labels
+        return enc_full
+
+
 
     print("Tokenizing training data...")
     train_ds = train_ds.map(
@@ -85,41 +115,62 @@ def main():
     dev_ds = dev_ds.map(
         tokenize_fn,
         batched=True,
-        remove_columns=["text", "labels"]
+        remove_columns=["text", "labels"] 
     )
 
-    # Apply LoRA adapters
-    # print("Applying LoRA adapters...")
-    # peft_config = LoraConfig(
-    #     r=16,
-    #     lora_alpha=32,
-    #     target_modules=["c_attn", "c_proj"],
-    #     lora_dropout=0.05,
-    #     task_type="CAUSAL_LM"
-    # )
-    # model = get_peft_model(model, peft_config)
+    # Initialize model without bitsandbytes
+    print("Loading base model...")
+    if torch.cuda.is_available():
+        bnb_config = BitsAndBytesConfig(load_in_4bit=True)
+        model = AutoModelForCausalLm.from_pretrained(
+            MODEL_ID,
+            quantization_config=bnb_config,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            device_map="cpu"
+        )
+    else:
+        model = AutoModelForCausalLm.from_pretrained(
+            MODEL_ID,
+            torch_dtype=torch.float32,
+            device_map="cpu"
+        )
 
+    # Apply LoRA adapters
+    print("Applying LoRA adapters...")
+    peft_config = LoraConfig(
+        r=8,
+        lora_alpha=16,
+        target_modules=["q_proj", "v_proj"],
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM"
+    )
+    model = get_peft_model(model, peft_config)
+    torch.cuda.empty_cache()
+    fp16_flag = True if torch.cuda.is_available() else False
     # Training arguments
     training_args = TrainingArguments(
-        output_dir=str(PROJECT_ROOT / "models" / "sft-gpt2"),
-        per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
-        gradient_accumulation_steps=8,
-        num_train_epochs=3,
+        output_dir=str(PROJECT_ROOT / "models" / "sft2"),
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
+        gradient_accumulation_steps=12,
+        num_train_epochs=2,
         learning_rate=2e-5,
         eval_strategy="epoch",
         save_strategy="epoch",
         logging_strategy="steps",
         logging_steps=50,
         save_total_limit=2,
-        fp16=True,
+        fp16=fp16_flag,
         report_to=["none"]
     )
 
-    # Data collator
-    data_collator = DataCollatorWithPadding(
-        tokenizer=tokenizer,
-        pad_to_multiple_of=8
+    #data_collator = DataCollatorWithPadding(tokenizer, padding= True)
+    data_collator = DataCollatorForSeq2Seq(
+        tokenizer,
+        model=model,
+        pad_to_multiple_of=8,
+        padding=True
     )
 
     trainer = Trainer(
@@ -133,7 +184,7 @@ def main():
 
     # Train and save
     trainer.train()
-    trainer.save_model(str(PROJECT_ROOT / "models" / "sft-gpt2"))
+    trainer.save_model(str(PROJECT_ROOT / "models" / "sft2"))
 
 if __name__ == "__main__":
     main()
