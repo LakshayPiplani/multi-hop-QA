@@ -1,111 +1,147 @@
-import os, re, json, torch
+# ── src/infer_agot.py ─────────────────────────────────────────────────────────
+"""
+Adaptive GoT inference for GPT-2 LoRA-fine-tuned on HotpotQA.
+
+Prompt format (Llama-style):
+<s>[INST] <<SYS>>
+You are a careful multi-hop reasoner. Think step-by-step.
+<</SYS>>
+
+QUESTION: ...
+PARAGRAPHS:
+  0: Albert Einstein || Albert Einstein was a German-born ...
+  1: Mileva Marić   || Mileva Marić was a Serbian mathematician ...
+<|assistant|>
+"""
+
+import os, re, math, argparse, torch, json
+from collections import deque
 from pathlib import Path
 from tqdm.auto import tqdm
-from evaluate import load as load_metric
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from peft import PeftModel
-from data_module import load_examples
+from evaluate import load as load_metric
+from data_module   import load_examples
 from graph_builder import build_graph
-from token_utilizer_Llama import serialize_example  # reuse your serializer
 
-# ── Config ───────────────────────────────────────────────────────────────────
-PROJECT_ROOT   = Path(__file__).parent.parent.resolve()
-MODEL_DIR      = PROJECT_ROOT / "models" / "sft1"          # must match train_sft.py
-BASE_MODEL_ID = "meta-llama/Llama-3.2-1B"
-PROCESSED_DIR  = PROJECT_ROOT / "data" / "processed"
-DEV_SUBDIR     = "hotpot_dev_distractor_v1"                # evaluate on dev
-BATCH_SIZE     = 4                                         # adjust for GPU RAM
-MAX_NEW_TOK    = 64                                        # generation budget
-SAVE_JSON      = True                                      # write submission.json?
+# ── Hyper-params you can tune at CLI ──────────────────────────────────────────
+TAU_BITS   = 1.3   # entropy threshold for branching
+MAX_STEPS  = 4     # hard cap on hop length
+MAX_NEWTOK = 32    # generation budget per step
+MAX_NODES  = 800   # controller queue budget (safety)
+DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
 
-device = torch.device("cuda" if torch.cuda.is_available()
-                      else "mps" if torch.backends.mps.is_available()
-                      else "cpu")
+# ── Project paths (adjust if needed) ─────────────────────────────────────────
+ROOT       = Path(__file__).parent.parent.resolve()
+MODEL_DIR  = ROOT / "models" / "sft-gpt2"
+PROC_DIR   = ROOT / "data" / "processed"
+DEV_SPLIT  = "hotpot_dev_distractor_v1"
 
-# ── Helper: strip everything after FINAL: ────────────────────────────────────
-def extract_answer(text: str) -> str:
-    """
-    Return the substring after the first 'FINAL:' and before any tag/line break.
-    """
-    m = re.search(r"FINAL:\s*(.+)", text)
-    if not m:
-        return ""
-    answer = m.group(1).strip()
-    # stop at first tag or newline like [/INST] or <s>
-    answer = re.split(r"(\n|\[/INST]|<s>|</s>)", answer, maxsplit=1)[0]
-    return answer.strip().lower()
+# ── Helper: Shannon entropy (bits) of logits row ─────────────────────────────
+def entropy_bits(logits):
+    p = logits.softmax(-1)
+    return -(p * p.log2()).sum().item()
 
-# ── Load LoRA-tuned model & tokenizer ────────────────────────────────────────
-print("Loading fine-tuned model …")
-# Load base model architecture from local adapter folder
-base_model = AutoModelForCausalLM.from_pretrained(
-    BASE_MODEL_ID,
-    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    device_map="auto"
-)
-# Attach LoRA adapters saved alongside
-model = PeftModel.from_pretrained(base_model, MODEL_DIR)
-model.eval()
+# ── Build initial prompt: question + ALL paragraphs ─────────────────────────
+def build_start_prompt(question, graph):
+    L = ["<s>[INST] <<SYS>>",
+         "You are a careful multi-hop reasoner. Think step-by-step.",
+         "<</SYS>>",
+         f"\nQUESTION: {question}",
+         "PARAGRAPHS:"]
+    for pid, data in graph.nodes(data=True):
+        sent = " ".join(data["sentences"])
+        L.append(f"  {pid}: {data['title']} || {sent}")
+    L.append("<|assistant|>")
+    return "\n".join(L)
 
-# Load tokenizer saved in adapter folder
-tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, padding_side="left")
-tokenizer.pad_token = tokenizer.eos_token
+# ── Controller: adaptive DFS/BFS ------------------------------------------------
+def agot_answer(model, tok, ex, tau_bits=TAU_BITS):
+    graph = build_graph(ex)
+    start = build_start_prompt(ex.question, graph)
 
-# ── Load dev examples ────────────────────────────────────────────────────────
-examples = load_examples(str(PROCESSED_DIR), DEV_SUBDIR)
-print(f"Loaded {len(examples)} eval examples")
+    Node = tuple[str, list[int], float]          # prompt, chain, logprob
+    queue = deque([(start, [], 0.0)])
+    completed = []
 
-# ── Metric setup ─────────────────────────────────────────────────────────────
-squad_metric = load_metric("squad_v2")
+    while queue and len(completed) < 4 and len(queue) < MAX_NODES:
+        prompt, chain, lp = queue.popleft()
 
-# ── Batched generation loop ─────────────────────────────────────────────────
-preds, refs = {}, {}
-for i in tqdm(range(0, len(examples), BATCH_SIZE)):
-    batch_ex = examples[i : i + BATCH_SIZE]
-    prompts = []
-    for ex in batch_ex:
-        g = build_graph(ex)
-        # serialize WITHOUT gold path/candidates
-        prompt = serialize_example(ex, g, num_divergent=0).split("CANDIDATE 1:")[0]
-        prompt += "[INST]\n"  # ask model to answer
-        prompts.append(prompt)
+        # Stop if exceeded hop limit
+        if len(chain) >= MAX_STEPS:
+            continue
 
-    tok = tokenizer(
-        prompts,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=tokenizer.model_max_length
-    ).to(device)
+        inpt = tok(prompt, return_tensors="pt").to(DEVICE)
+        with torch.no_grad():
+            gen = model.generate(
+                **inpt,
+                max_new_tokens=MAX_NEWTOK,
+                output_scores=True,
+                return_dict_in_generate=True,
+                do_sample=False
+            )
 
-    with torch.no_grad():
-        out = model.generate(
-            **tok,
-            max_new_tokens=MAX_NEW_TOK,
-            do_sample=False
-        )
+        # Decode ONLY the new text
+        new_txt = tok.decode(gen.sequences[0][inpt.input_ids.size(1):],
+                             skip_special_tokens=True)
 
-    decoded = tokenizer.batch_decode(out, skip_special_tokens=True)
-    for ex, full_text in zip(batch_ex, decoded):
-        ans = extract_answer(full_text)
-        gold = (ex.answer or "").lower()
-        preds[ex.qid] = ans
-        refs[ex.qid] = gold
-        squad_metric.add(prediction=ans, reference=gold)
+        # --- Check for FINAL answer -----------------------------------------
+        m_final = re.search(r"FINAL:\s*(.+)", new_txt)
+        if m_final:
+            completed.append((chain, m_final.group(1).strip(), lp))
+            continue
 
-# ── Scores ──────────────────────────────────────────────────────────────────
-results = squad_metric.compute(
-    predictions=list(preds.values()),
-    references=list(refs.values())
-)
-print(f"\nDev Exact Match: {results['exact_match']:.2f}%")
-print(f"Dev F1:           {results['f1']:.2f}%")
+        # --- Extract predicted next pid -------------------------------------
+        m_step = re.search(r"\[STEP\s+\d+\]\s*(\d+)", new_txt)
+        if not m_step:
+            continue          # malformed → skip
+        pid = int(m_step.group(1))
 
-# ── Optional: write CodaLab submission JSON ─────────────────────────────────
-# if SAVE_JSON:
-#     submission = {"answer": preds, "sp": {qid: [] for qid in preds}}
-#     out_path = PROJECT_ROOT / "submission.json"
-#     with open(out_path, "w") as f:
-#         json.dump(submission, f, indent=2)
-#     print(f"Saved HotpotQA submission to {out_path}")
+        # Update chain and log-prob of that prediction
+        step_logits = gen.scores[0][0]                 # first token logits
+        token_id    = tok.encode(str(pid), add_special_tokens=False)[0]
+        lp_new      = lp + step_logits.log_softmax(-1)[token_id].item()
+
+        # Compute entropy to decide branching
+        H = entropy_bits(step_logits)
+
+        # Append retrieved paragraph text to prompt context
+        para = " ".join(graph.nodes[pid]["sentences"])
+        new_prompt = (prompt +
+                      f"\n[STEP {len(chain)+1}] {pid}"
+                      f"\n\nPARA {pid}: {para}\n<|assistant|>")
+        queue.append((new_prompt, chain + [pid], lp_new))
+
+        # Branch if LM is uncertain
+        if H >= tau_bits and len(queue) < MAX_NODES:
+            queue.append((new_prompt, chain + [pid], lp_new - 1.0))
+
+    # Return best answer by log-prob
+    if completed:
+        return max(completed, key=lambda t: t[2])[1]
+    return ""
+
+# ── Main CLI ---------------------------------------------------------------
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--num", type=int, default=200, help="# dev rows to run")
+    ap.add_argument("--tau", type=float, default=TAU_BITS, help="entropy gate")
+    args = ap.parse_args()
+
+    # Load model + tokenizer
+    tokenizer = AutoTokenizer.from_pretrained("gpt2", padding_side="left")
+    base      = AutoModelForCausalLM.from_pretrained("gpt2", device_map="auto")
+    model     = PeftModel.from_pretrained(base, MODEL_DIR).to(DEVICE).eval()
+
+    # Dev data
+    examples = load_examples(str(PROC_DIR), DEV_SPLIT)[: args.num]
+    metric   = load_metric("squad_v2")
+
+    for ex in tqdm(examples):
+        pred = agot_answer(model, tokenizer, ex, tau_bits=args.tau)
+        metric.add(prediction=pred.lower(),
+                   reference=(ex.answer or "").lower())
+
+    res = metric.compute()
+    print(f"Exact Match {res['exact_match']:.2f}%  |  F1 {res['f1']:.2f}%")
