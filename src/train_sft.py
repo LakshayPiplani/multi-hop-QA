@@ -52,10 +52,10 @@ def main():
         data = {"text": [], "labels": []}
         for ex in examples:
             graph = build_graph(ex)
-            prompt = serialize_example(ex, graph, num_divergent=2)
+            prompt, gold_only = serialize_example(ex, graph, num_divergent=2)
             # For SFT, labels = full prompt including gold candidate
             data["text"].append(prompt)
-            data["labels"].append(prompt)
+            data["labels"].append(gold_only)
         return Dataset.from_dict(data)
 
     train_ds = make_dataset(train_examples)
@@ -66,33 +66,23 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
-    def tokenize_fn(batch):
-        tokens =  tokenizer(
-            batch["text"],
-            #text_target=batch["labels"],  # Use text_target for labels
-            truncation=True,
-            max_length=2048,
-            padding="max_length"  # Changed to max_length padding
-        )
-        tokens["labels"] = tokens["input_ids"].copy()
-        return tokens
-        tokenized = tokenizer(
-            batch["text"],
-            truncation=True,
-            max_length=2048,
-            padding=True
-        )
-        # Tokenize labels separately
-        with tokenizer.as_target_tokenizer():
-            labels = tokenizer(
-                batch["labels"],
-                truncation=True,
-                max_length=2048,
-                padding=True
-            )["input_ids"]
-        tokenized["labels"] = labels
 
-        return tokenized
+
+    def tokenize_fn(batch, MAX_LEN = 2048):
+        """
+        HF will automatically:
+        • return input_ids / attention_mask for `text`
+        • create labels from `text_target`, aligning & padding
+        • mask all user-side tokens in labels with -100
+        """
+        return tokenizer(
+            text=batch["text"],            # full prompt (question + candidates)
+            text_target=batch["labels"],   # gold chain only
+            truncation=True,
+            max_length=MAX_LEN,
+            padding="longest"              # dynamic pad to longest in batch
+        )
+
 
     print("Tokenizing training data...")
     train_ds = train_ds.map(
