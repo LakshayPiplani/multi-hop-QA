@@ -7,7 +7,7 @@ import torch
 from datasets import Dataset
 from transformers import (
     AutoTokenizer,
-    AutoModelForCausalLm,
+    AutoModelForCausalLM,
     Trainer,
     TrainingArguments,
     DataCollatorWithPadding,
@@ -122,14 +122,14 @@ def main():
     print("Loading base model...")
     if torch.cuda.is_available():
         bnb_config = BitsAndBytesConfig(load_in_4bit=True)
-        model = AutoModelForCausalLm.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             quantization_config=bnb_config,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             device_map="cpu"
         )
     else:
-        model = AutoModelForCausalLm.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             torch_dtype=torch.float32,
             device_map="cpu"
@@ -138,19 +138,24 @@ def main():
     # Apply LoRA adapters
     print("Applying LoRA adapters...")
     peft_config = LoraConfig(
-        r=8,
-        lora_alpha=16,
-        target_modules=["q_proj", "v_proj"],
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM"
+    r=8,
+    lora_alpha=16,
+    target_modules=["c_attn",  # fused QKV projection
+                    "c_proj"], # output projection
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+    # GPT-2’s Linear layers are stored as [out, in].
+    # If you hit shape-mismatch errors, set this flag:
+    # fan_in_fan_out = True,
     )
+
     model = get_peft_model(model, peft_config)
     torch.cuda.empty_cache()
     fp16_flag = True if torch.cuda.is_available() else False
     # Training arguments
     training_args = TrainingArguments(
-        output_dir=str(PROJECT_ROOT / "models" / "sft2"),
+        output_dir=str(PROJECT_ROOT / "models" / "sft2-gpt2"),
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=12,
@@ -184,7 +189,7 @@ def main():
 
     # Train and save
     trainer.train()
-    trainer.save_model(str(PROJECT_ROOT / "models" / "sft2"))
+    trainer.save_model(str(PROJECT_ROOT / "models" / "sft2-gpt2"))
 
 if __name__ == "__main__":
     main()
