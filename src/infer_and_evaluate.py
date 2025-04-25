@@ -18,7 +18,7 @@ import os, re, math, argparse, torch, json
 from collections import deque
 from pathlib import Path
 from tqdm.auto import tqdm
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 from peft import PeftModel
 from evaluate import load as load_metric
@@ -145,7 +145,20 @@ if __name__ == "__main__":
 
     # Load model + tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, padding_side="right")
-    base      = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto")
+    if torch.cuda.is_available():
+        bnb_config = BitsAndBytesConfig(load_in_4bit=True)
+        base = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            quantization_config=bnb_config,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            device_map="cpu"
+        )
+    else:
+        base = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            torch_dtype=torch.float32,
+            device_map="cpu"
+        )
     model     = PeftModel.from_pretrained(base, MODEL_DIR).to(DEVICE).eval()
 
     # Dev data
