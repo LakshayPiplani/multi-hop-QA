@@ -199,7 +199,7 @@ def main():
     
     # Load LoRA adapter if exists
     if (MODEL_DIR / "adapter_config.json").exists():
-        model = PeftModel.from_pretrained(model, MODEL_DIR)
+        #model = PeftModel.from_pretrained(model, MODEL_DIR)
     
         test_prompt = "What is the capital of France?"
         inputs = tokenizer(test_prompt, return_tensors="pt").to(DEVICE)

@@ -79,13 +79,12 @@ def serialize_example(
     system = (
         "<|begin_of_text|>"
         "<|start_header_id|>system<|end_header_id|>\n"
-        "You are a careful multi-hop reasoner. Think step-by-step.",
+        "You are a careful multi-hop reasoner. Think step-by-step."
         "Your task is to:"
-        "1. First identify the most relevant paragraph(s) to the question",
-        "2. Extract key information from those paragraphs",
-        "3. Combine the information to form a final answer",
-        "4. Present your reasoning clearly with [STEP X] tags before each step",
-        "5. End with FINAL: ",
+        "1. First identify the most relevant paragraph(s) to the question"
+        "2. Extract key information from those paragraphs"
+        "3. Combine the information to form a final answer"
+        "4. Present your reasoning clearly with [STEP X] tags before each step"
         """
         EXAMPLE QUESTION: Which company is older, EOG Resources or General Mills?
         PARAGRAPHS:
@@ -96,15 +95,15 @@ def serialize_example(
         [STEP 2] EOG founded in 1999 (paragraph 0)
         [STEP 3] General Mills founded in 1866 (paragraph 1)
         FINAL: General Mills is older
-        """,
+        """
         "<|eot_id|>"
     )
 
     # ── user block: question + paragraphs + candidates ─────
     user_lines = [
-        "<|start_header_id|>user<|end_header_id|>",
-        f"Here is the QUESTION you are supposed to answer: QUESTION: {ex.question}",
-        "PARAGRAPHS:",
+        "<|start_header_id|>user<|end_header_id|>"
+        f"Here is the QUESTION you are supposed to answer: QUESTION: {ex.question}"
+        "PARAGRAPHS:"
     ]
     for pid, data in graph.nodes(data=True):
         title = data.get("title", "")
@@ -112,16 +111,14 @@ def serialize_example(
         user_lines.append(f"  {pid}: {title} || {sent}")
 
     # Candidate-1 (gold) lines (also captured for labels)
-    user_lines.append("\nFor example, if you were to answer this question, you might see relevant nodes:")
     gold_lines = [f" {i}] {pid}"
                   for i, pid in enumerate(ex.gold_path, 1)]
     gold_lines.append(f"FINAL: {ex.answer}")
-    user_lines.append("\n These are the relevant lines:")
+    user_lines.append("\n These are the relevant paragraph numbers:")
     user_lines.extend("  " + ln for ln in gold_lines)
 
     # Divergent candidates (context only)
-    user_lines.append("\nThe other paragrapsh(s) are not relevant to the question.")
-    user_lines.append("These are not to be used in the final answer.")
+    user_lines.append("\nThe other candidate(s) are not relevant to the question. These are wrong paths.")
     wrong_paths = sample_wrong_paths(graph, ex.gold_path, num_divergent)
     for idx, path in enumerate(wrong_paths, start=2):
         user_lines.append(f"\nCANDIDATE {idx}:")
@@ -135,13 +132,13 @@ def serialize_example(
     # ── assistant header: label text only ──────────────────
     assistant_block = (
         "<|start_header_id|>assistant<|end_header_id|>\n" +
-        "\n".join(gold_lines) + "\n" +
+        #"\n".join(gold_lines) + "\n" +
         "<|eot_id|>"
     )
 
     full_prompt = "\n".join([system, user_block, assistant_block])
     gold_text   = "\n".join(gold_lines)          # label slice
-    print(full_prompt)
+    #print(full_prompt)
     return full_prompt, gold_text
 
 
