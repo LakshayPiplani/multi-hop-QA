@@ -109,7 +109,7 @@ def main():
     # Initialize model without bitsandbytes
     print("Loading base model...")
     if torch.cuda.is_available():
-        bnb_config = BitsAndBytesConfig(load_in_4bit=True)
+        bnb_config = BitsAndBytesConfig(load_in_4bit=False)
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             quantization_config=bnb_config,
@@ -139,11 +139,11 @@ def main():
     fp16_flag = torch.cuda.is_available()
     # Training arguments
     training_args = TrainingArguments(
-        output_dir=str(PROJECT_ROOT / "models" / "sft2"),
+        output_dir=str(PROJECT_ROOT / "models" / "sft3"),
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=12,
-        num_train_epochs=2,
+        num_train_epochs=5,
         learning_rate=2e-5,
         eval_strategy="epoch",
         save_strategy="epoch",
@@ -173,7 +173,7 @@ def main():
 
     # Train and save
     trainer.train()
-    trainer.save_model(str(PROJECT_ROOT / "models" / "sft2"))
+    trainer.save_model(str(PROJECT_ROOT / "models" / "sft3"))
 
 if __name__ == "__main__":
     main()
