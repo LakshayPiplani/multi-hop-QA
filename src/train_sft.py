@@ -7,6 +7,7 @@ from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     Trainer,
+    DataCollatorWithPadding,
     TrainingArguments,
     DataCollatorForSeq2Seq,
     BitsAndBytesConfig
@@ -60,6 +61,20 @@ def main():
     print("sample tokenization\n", sample["input_ids"])  # Should be left-padded (e.g., `[0, 0, 123, 456]`)
 
     def tokenize_fn(batch):
+        tokenized = tokenizer(text=batch["text"], text_target=batch["labels"], truncation=True, max_length=MAX_LENGTH, padding="max_length")
+        return tokenized
+        tokenized["labels"] = tokenized["input_ids"].copy()
+        
+        # Tokenize both text and labels together to ensure alignment
+        tokenized = tokenizer(
+            batch["text"],
+            text_target=batch["labels"],  # Handles alignment automatically
+            truncation=False,
+            max_length=MAX_LENGTH,
+            padding=True,
+        )
+        return tokenized
+
         # Tokenize inputs (full prompt)
         inputs = tokenizer(
             batch["text"],
@@ -84,7 +99,8 @@ def main():
 
     train_ds = train_ds.map(tokenize_fn, batched=True, remove_columns=["text", "labels"])
     eval_ds = eval_ds.map(tokenize_fn, batched=True, remove_columns=["text", "labels"])
-
+    print("shape of train_ds:", train_ds.shape)
+    # Should be identical except for the last dimension
     # --- Model Initialization ---
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -131,11 +147,14 @@ def main():
 
     # --- Data Collator ---
     collator = DataCollatorForSeq2Seq(
-        tokenizer,
-        model=model,
-        pad_to_multiple_of=8,
-        padding="longest",
+    tokenizer,
+    padding="longest",
+    pad_to_multiple_of=8 if torch.cuda.is_available() else None,
+    return_tensors="pt",
     )
+    sample_batch = collator([train_ds[0], train_ds[1]])  # Check first 2 examples
+    print("Input IDs shape:", sample_batch["input_ids"].shape)
+    print("Labels shape:", sample_batch["labels"].shape)
 
     # --- Trainer ---
     trainer = Trainer(
@@ -154,7 +173,7 @@ def main():
     # --- Test Generation ---
     test_prompt = "QUESTION: What is the capital of France? PARAGRAPHS:..."
     inputs = tokenizer(test_prompt, return_tensors="pt").to(device)
-    outputs = model.generate(**inputs, max_new_tokens=100)
+    outputs = model.generate(**inputs)
     print("Test Generation:", tokenizer.decode(outputs[0], skip_special_tokens=True))
 
 if __name__ == "__main__":
