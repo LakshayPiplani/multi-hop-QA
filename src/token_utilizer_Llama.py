@@ -12,12 +12,7 @@ MODEL_ID = "meta-llama/Llama-3.2-1B"
 def get_project_root() -> Path:
     return Path(__file__).parent.parent.resolve()
 
-# Default processed data subdirectories
-def get_processed_dirs() -> list[str]:
-    return [
-        "hotpot_dev_distractor_v1",
-        "hotpot_train_v1.1"
-    ]
+
 
 # Initialize the tokenizer
 def get_tokenizer(model_name: str = MODEL_ID) -> LlamaTokenizer:
@@ -53,57 +48,79 @@ def serialize_example(
     num_divergent: int = 2,
 ) -> tuple[str, str]:
     """
-    Build a single-block Llama-2 prompt.
+    Llama-3 style prompt.
 
-    • The *entire* conversation (system + user + all candidates) lives
-      inside ONE  `[INST] ... [/INST]`.
-    • Candidate 1 is the gold chain+answer and will be used as the *label*.
-    • Candidate 2..k are divergent and get loss-masked (context only).
-
-    Returns
-    -------
-    full_prompt : str   # what you feed as `text`
-    gold_only   : str   # what you feed as `text_target`
+    ┌─ system header ──────────────────────────────────────────┐
+    | <|start_header_id|>system<|end_header_id|>               |
+    |  …instruction…                                           |
+    | <|eot_id|>                                               |
+    └──────────────────────────────────────────────────────────┘
+    ┌─ user header ────────────────────────────────────────────┐
+    | <|start_header_id|>user<|end_header_id|>                 |
+    |  QUESTION …                                             |
+    |  PARAGRAPHS:                                            |
+    |    pid: title || sentences                              |
+    |                                                         |
+    |  CANDIDATE 1:   ← gold chain                            |
+    |    [STEP 1] pid …                                       |
+    |    FINAL: answer                                        |
+    |                                                         |
+    |  CANDIDATE 2:   ← divergent (context-only)              |
+    |  …                                                     |
+    | <|eot_id|>                                              |
+    └──────────────────────────────────────────────────────────┘
+    ┌─ assistant header (label) ───────────────────────────────┐
+    | <|start_header_id|>assistant<|end_header_id|>            |
+    |  (gold chain + answer)   ← tokens that get loss         |
+    └──────────────────────────────────────────────────────────┘
     """
 
-    lines: list[str] = []
+    # ── system block ───────────────────────────────────────
+    system = (
+        "<|begin_of_text|>"
+        "<|start_header_id|>system<|end_header_id|>\n"
+        "You are a careful multi-hop reasoner. Think step-by-step."
+        "<|eot_id|>"
+    )
 
-    # ── open INST + system ─────────────────────────
-    lines.append("<s>[INST] <<SYS>>")
-    lines.append("You are a careful multi-hop reasoner. Think step-by-step.")
-    lines.append("<</SYS>>\n")                     # blank line terminates system
-
-    # ── user content: question + full paragraphs ──
-    lines.append(f"QUESTION: {ex.question}")
-    lines.append("PARAGRAPHS:")
+    # ── user block: question + paragraphs + candidates ─────
+    user_lines = [
+        "<|start_header_id|>user<|end_header_id|>",
+        f"QUESTION: {ex.question}",
+        "PARAGRAPHS:",
+    ]
     for pid, data in graph.nodes(data=True):
-        title      = data.get("title", "")
-        sentences  = " ".join(data.get("sentences", []))  # join all sentences
-        # include both title and body
-        lines.append(f"  {pid}: {title} || {sentences}")
-    lines.append("")                                    # blank line before candidates
+        title = data.get("title", "")
+        sent  = " ".join(data.get("sentences", []))
+        user_lines.append(f"  {pid}: {title} || {sent}")
 
-    # ── Candidate-1 (gold)  ───────────────────────
-    lines.append("CANDIDATE 1:")
-    gold_lines: list[str] = []           # will become the label slice
-    for i, pid in enumerate(ex.gold_path, start=1):
-        gold_lines.append(f"[STEP {i}] {pid}")
+    # Candidate-1 (gold) lines (also captured for labels)
+    gold_lines = [f"[STEP {i}] {pid}"
+                  for i, pid in enumerate(ex.gold_path, 1)]
     gold_lines.append(f"FINAL: {ex.answer}")
-    lines.extend("  " + ln for ln in gold_lines)   # indent in prompts
 
-    # ── Divergent candidates  ─────────────────────
+    user_lines.append("\nCANDIDATE 1:")
+    user_lines.extend("  " + ln for ln in gold_lines)
+
+    # Divergent candidates (context only)
     wrong_paths = sample_wrong_paths(graph, ex.gold_path, num_divergent)
     for idx, path in enumerate(wrong_paths, start=2):
-        lines.append(f"\nCANDIDATE {idx}:")
-        for i, pid in enumerate(path, start=1):
-            lines.append(f"  [STEP {i}] {pid}")
-        lines.append("  FINAL:")
+        user_lines.append(f"\nCANDIDATE {idx}:")
+        for i, pid in enumerate(path, 1):
+            user_lines.append(f"  [STEP {i}] {pid}")
+        user_lines.append("  FINAL:")
 
-    # ── close INST and EOS ────────────────────────
-    lines.append("[/INST]</s>")
+    user_lines.append("<|eot_id|>")
+    user_block = "\n".join(user_lines)
 
-    full_prompt = "\n".join(lines)
-    gold_text   = "\n".join(gold_lines)
+    # ── assistant header: label text only ──────────────────
+    assistant_block = (
+        "<|start_header_id|>assistant<|end_header_id|>\n" +
+        "\n".join(gold_lines)
+    )
+
+    full_prompt = "\n".join([system, user_block, assistant_block])
+    gold_text   = "\n".join(gold_lines)          # label slice
 
     return full_prompt, gold_text
 
@@ -120,14 +137,14 @@ def pack_prompt(prompt: str, tokenizer: LlamaTokenizer, max_seq_len: int = 2048)
     return tokens
 
 # Example usage
-if __name__ == "__main__":
-    project_root = get_project_root()
-    processed_dir = os.path.join(project_root, "data", "processed")
-    # Serialize first example
-    examples = load_examples(processed_dir, get_processed_dirs()[0])
-    import graph_builder
-    G = graph_builder.build_graph(examples[0])
-    prompt = serialize_example(examples[0], G)
-    tok = get_tokenizer()
-    batch = pack_prompt(prompt, tok)
-    print(batch)
+# if __name__ == "__main__":
+#     project_root = get_project_root()
+#     processed_dir = os.path.join(project_root, "data", "processed")
+#     # Serialize first example
+#     examples = load_examples(processed_dir, get_processed_dirs()[0])
+#     import graph_builder
+#     G = graph_builder.build_graph(examples[0])
+#     prompt = serialize_example(examples[0], G)
+#     tok = get_tokenizer()
+#     batch = pack_prompt(prompt, tok)
+#     print(batch)

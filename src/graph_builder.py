@@ -57,26 +57,26 @@ def build_graph(example: Example) -> nx.DiGraph:
 
 
 def main():
+    pass
     # Determine project root and processed data directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
-    processed_dir = os.path.join(project_root, "data", "processed")
+    # script_dir = os.path.dirname(os.path.abspath(__file__))
+    # project_root = os.path.dirname(script_dir)
+    # processed_dir = os.path.join(project_root, "data", "processed")
 
 
-    # finding list of subdirectories in processed_dir
-    sub_dirs = [d for d in os.listdir(processed_dir) if os.path.isdir(os.path.join(processed_dir, d))]
-    print(f"Subdirectories in {processed_dir}: {sub_dirs}")
-    # Define your processed subdirectories
-    sub_dirs = ["hotpot_dev_distractor_v1", "hotpot_train_v1.1"]
+    # # finding list of subdirectories in processed_dir
+    # sub_dirs = [d for d in os.listdir(processed_dir) if os.path.isdir(os.path.join(processed_dir, d))]
+    # print(f"Subdirectories in {processed_dir}: {sub_dirs}")
+    # # Define your processed subdirectories
 
-    for sub_dir in sub_dirs:
-        print(f"Loading examples from {sub_dir}...")
-        examples: List[Example] = load_examples(processed_dir, sub_dir)
-        print(f"Building graphs for {len(examples)} examples...")
-        graphs = [build_graph(ex) for ex in examples]
-        print(f"Built {len(graphs)} graphs for {sub_dir}\n")
+    # for sub_dir in sub_dirs:
+    #     print(f"Loading examples from {sub_dir}...")
+    #     examples: List[Example] = load_examples(processed_dir, sub_dir)
+    #     print(f"Building graphs for {len(examples)} examples...")
+    #     graphs = [build_graph(ex) for ex in examples]
+    #     print(f"Built {len(graphs)} graphs for {sub_dir}\n")
 
     # Optionally: return graphs or save them for downstream use
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

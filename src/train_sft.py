@@ -7,7 +7,7 @@ import torch
 from datasets import Dataset
 from transformers import (
     AutoTokenizer,
-    AutoModelForCausalLm,
+    AutoModelForCausalLM,
     Trainer,
     TrainingArguments,
     DataCollatorWithPadding,
@@ -29,22 +29,13 @@ def main():
     # Resolve project root and data directories
     PROJECT_ROOT = Path(__file__).parent.parent.resolve()
     processed_dir = PROJECT_ROOT / "data" / "processed"
+    train_subdir = "train" ## only load training data
 
-    # finding list of subdirectories in processed_dir
-    sub_dirs = [d for d in os.listdir(processed_dir) if os.path.isdir(os.path.join(processed_dir, d))]
-    train_subdir, dev_subdir = sub_dirs if 'train' in sub_dirs[0] else sub_dirs[::-1]
-    print(f"Subdirectories in {processed_dir}: {sub_dirs}")
-    print(f"Using {train_subdir} for training and {dev_subdir} for evaluation")
-    #train_subdir = "hotpot_dev_distractor_v1"
-    #dev_subdir = "hotpot_dev_distractor_v1"
 
     # Load examples
     print("Loading training examples...")
     train_examples = load_examples(str(processed_dir), train_subdir)
-    print(f"Loaded {len(train_examples)} training examples")
-    print("Loading evaluation examples...")
-    dev_examples = load_examples(str(processed_dir), dev_subdir)
-    print(f"Loaded {len(dev_examples)} evaluation examples")
+    print(f"Loaded {len(train_examples)} training examples. Will split 20% into eval dataset")
 
     # Prepare Dataset objects
     def make_dataset(examples):
@@ -57,8 +48,10 @@ def main():
             data["labels"].append(gold_only)
         return Dataset.from_dict(data)
 
-    train_ds = make_dataset(train_examples)
-    dev_ds = make_dataset(dev_examples)
+    full_ds = make_dataset(train_examples)
+    split = full_ds.train_test_split(test_size=0.20, seed=42)
+    train_ds = split["train"]   # 80 %
+    eval_ds  = split["test"]    # 20 %
 
     # Load tokenizer and tokenize datasets
     print("Loading tokenizer...")
@@ -111,25 +104,26 @@ def main():
         batched=True,
         remove_columns=["text", "labels"]
     )
-    print("Tokenizing evaluation data...")
-    dev_ds = dev_ds.map(
+
+    print("Tokenizing eval data...")
+    eval_ds = eval_ds.map(
         tokenize_fn,
         batched=True,
-        remove_columns=["text", "labels"] 
+        remove_columns=["text", "labels"]
     )
 
     # Initialize model without bitsandbytes
     print("Loading base model...")
     if torch.cuda.is_available():
         bnb_config = BitsAndBytesConfig(load_in_4bit=True)
-        model = AutoModelForCausalLm.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             quantization_config=bnb_config,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             device_map="cpu"
         )
     else:
-        model = AutoModelForCausalLm.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             torch_dtype=torch.float32,
             device_map="cpu"
@@ -177,7 +171,7 @@ def main():
         model=model,
         args=training_args,
         train_dataset=train_ds,
-        eval_dataset=dev_ds,
+        eval_dataset=eval_ds,
         tokenizer=tokenizer,
         data_collator=data_collator
     )

@@ -34,9 +34,10 @@ DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
 
 # ── Project paths (adjust if needed) ─────────────────────────────────────────
 ROOT       = Path(__file__).parent.parent.resolve()
-MODEL_DIR  = ROOT / "models" / "sft-gpt2"
+MODEL_DIR  = ROOT / "models" / "sft1"
 PROC_DIR   = ROOT / "data" / "processed"
-DEV_SPLIT  = "hotpot_dev_distractor_v1"
+DEV_SPLIT  = "test"
+MODEL_ID = "meta-llama/Llama-3.2-1B"
 
 # ── Helper: Shannon entropy (bits) of logits row ─────────────────────────────
 def entropy_bits(logits):
@@ -44,17 +45,25 @@ def entropy_bits(logits):
     return -(p * p.log2()).sum().item()
 
 # ── Build initial prompt: question + ALL paragraphs ─────────────────────────
+# ── Build initial prompt (system + user headers) ─────────────────────────────
 def build_start_prompt(question, graph):
-    L = ["<s>[INST] <<SYS>>",
-         "You are a careful multi-hop reasoner. Think step-by-step.",
-         "<</SYS>>",
-         f"\nQUESTION: {question}",
-         "PARAGRAPHS:"]
+    L = [
+        "<|begin_of_text|>"
+        "<|start_header_id|>system<|end_header_id|>\n"
+        "You are a careful multi-hop reasoner. Think step-by-step."
+        "<|eot_id|>",
+
+        "<|start_header_id|>user<|end_header_id|>",
+        f"QUESTION: {question}",
+        "PARAGRAPHS:",
+    ]
     for pid, data in graph.nodes(data=True):
         sent = " ".join(data["sentences"])
         L.append(f"  {pid}: {data['title']} || {sent}")
-    L.append("<|assistant|>")
+    L.append("<|eot_id|>")                            # close user turn
+    L.append("<|start_header_id|>assistant<|end_header_id|>")  # assistant starts
     return "\n".join(L)
+
 
 # ── Controller: adaptive DFS/BFS ------------------------------------------------
 def agot_answer(model, tok, ex, tau_bits=TAU_BITS):
@@ -108,9 +117,14 @@ def agot_answer(model, tok, ex, tau_bits=TAU_BITS):
 
         # Append retrieved paragraph text to prompt context
         para = " ".join(graph.nodes[pid]["sentences"])
-        new_prompt = (prompt +
-                      f"\n[STEP {len(chain)+1}] {pid}"
-                      f"\n\nPARA {pid}: {para}\n<|assistant|>")
+        new_prompt = (
+            prompt
+            + f"\n[STEP {len(chain)+1}] {pid}"
+            + f"\n\nPARA {pid}: {para}"
+            + "<|eot_id|>"                              # close assistant turn
+            + "\n<|start_header_id|>assistant<|end_header_id|>"  # reopen for next step
+        )
+
         queue.append((new_prompt, chain + [pid], lp_new))
 
         # Branch if LM is uncertain
@@ -130,8 +144,8 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     # Load model + tokenizer
-    tokenizer = AutoTokenizer.from_pretrained("gpt2", padding_side="left")
-    base      = AutoModelForCausalLM.from_pretrained("gpt2", device_map="auto")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, padding_side="right")
+    base      = AutoModelForCausalLM.from_pretrained(MODEL_ID, device_map="auto")
     model     = PeftModel.from_pretrained(base, MODEL_DIR).to(DEVICE).eval()
 
     # Dev data
