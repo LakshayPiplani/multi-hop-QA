@@ -96,8 +96,6 @@ def main():
         enc_full["labels"] = labels
         return enc_full
 
-
-
     print("Tokenizing training data...")
     train_ds = train_ds.map(
         tokenize_fn,
