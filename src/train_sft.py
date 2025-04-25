@@ -19,7 +19,7 @@ from graph_builder import build_graph
 from token_utilizer_Llama import serialize_example
 
 # --- Constants ---
-MODEL_ID = "meta-llama/Meta-Llama-3-8B"  # Updated to 8B (adjust if needed)
+MODEL_ID = "meta-llama/Llama-3.2-1B" 
 MAX_LENGTH = 2048  # Reduce if OOM errors occur
 
 def main():
