@@ -1,17 +1,5 @@
-# ── src/infer_agot.py ─────────────────────────────────────────────────────────
 """
-Adaptive GoT inference for GPT-2 LoRA-fine-tuned on HotpotQA.
-
-Prompt format (Llama-style):
-<s>[INST] <<SYS>>
-You are a careful multi-hop reasoner. Think step-by-step.
-<</SYS>>
-
-QUESTION: ...
-PARAGRAPHS:
-  0: Albert Einstein || Albert Einstein was a German-born ...
-  1: Mileva Marić   || Mileva Marić was a Serbian mathematician ...
-<|assistant|>
+Adaptive GoT inference for Llama-3.2-1B fine-tuned on HotpotQA with proper Llama-3 chat template
 """
 
 import os, re, math, argparse, torch, json
@@ -19,156 +7,320 @@ from collections import deque
 from pathlib import Path
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-
 from peft import PeftModel
 from evaluate import load as load_metric
-from data_module   import load_examples
+from data_module import load_examples
 from graph_builder import build_graph
 
-# ── Hyper-params you can tune at CLI ──────────────────────────────────────────
-TAU_BITS   = 1.3   # entropy threshold for branching
-MAX_STEPS  = 4     # hard cap on hop length
-MAX_NEWTOK = 32    # generation budget per step
-MAX_NODES  = 800   # controller queue budget (safety)
-DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
+# Config
+TAU_BITS = 1.3
+MAX_STEPS = 4
+MAX_NEWTOK = 32
+MAX_NODES = 800
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+ROOT = Path(__file__).parent.parent.resolve()
+MODEL_DIR = ROOT / "models" / "sft2"
+PROC_DIR = ROOT / "data" / "processed"
+DEV_SPLIT = "test"
+MODEL_ID = "meta-llama/Llama-3.2-1B" #  model path
+TOKENIZER_ID = "meta-llama/Llama-3.2-3B"  # Official tokenizer
 
-# ── Project paths (adjust if needed) ─────────────────────────────────────────
-ROOT       = Path(__file__).parent.parent.resolve()
-MODEL_DIR  = ROOT / "models" / "sft1"
-PROC_DIR   = ROOT / "data" / "processed"
-DEV_SPLIT  = "test"
-MODEL_ID = "meta-llama/Llama-3.2-1B"
-
-# ── Helper: Shannon entropy (bits) of logits row ─────────────────────────────
 def entropy_bits(logits):
     p = logits.softmax(-1)
     return -(p * p.log2()).sum().item()
 
-# ── Build initial prompt: question + ALL paragraphs ─────────────────────────
-# ── Build initial prompt (system + user headers) ─────────────────────────────
-def build_start_prompt(question, graph):
-    L = [
-        "<|begin_of_text|>"
-        "<|start_header_id|>system<|end_header_id|>\n"
-        "You are a careful multi-hop reasoner. Think step-by-step."
-        "<|eot_id|>",
-
+def build_llama3_prompt(question, graph, gold_path=None, answer=None):
+    """
+    Builds prompt in exact Llama-3 chat format:
+    
+    <|begin_of_text|>
+    <|start_header_id|>system<|end_header_id|>
+    You are a careful multi-hop reasoner. Think step-by-step.<|eot_id|>
+    <|start_header_id|>user<|end_header_id|>
+    QUESTION: {question}
+    PARAGRAPHS:
+      pid: title || sentences
+    CANDIDATE 1:
+      [STEP 1] pid
+      FINAL: answer<|eot_id|>
+    <|start_header_id|>assistant<|end_header_id|>
+    [STEP 1] pid
+    FINAL: answer
+    """
+    # System message
+    prompt = [
+        "<|begin_of_text|>",
+        "<|start_header_id|>system<|end_header_id|>",
+        "You are a careful multi-hop reasoner. Think step-by-step.",
+        "<|eot_id|>"
+    ]
+    
+    # User message with question and paragraphs
+    prompt.extend([
         "<|start_header_id|>user<|end_header_id|>",
         f"QUESTION: {question}",
-        "PARAGRAPHS:",
-    ]
+        "PARAGRAPHS:"
+    ])
+    
+    # Add all paragraphs
     for pid, data in graph.nodes(data=True):
         sent = " ".join(data["sentences"])
-        L.append(f"  {pid}: {data['title']} || {sent}")
-    L.append("<|eot_id|>")                            # close user turn
-    L.append("<|start_header_id|>assistant<|end_header_id|>")  # assistant starts
-    return "\n".join(L)
-
-
-# ── Controller: adaptive DFS/BFS ------------------------------------------------
-def agot_answer(model, tok, ex, tau_bits=TAU_BITS):
+        prompt.append(f"  {pid}: {data['title']} || {sent}")
+    
+    # Add gold candidate if provided (for training)
+    if gold_path and answer:
+        prompt.append("\nCANDIDATE 1:")
+        for i, pid in enumerate(gold_path, 1):
+            prompt.append(f"  [STEP {i}] {pid}")
+        prompt.append(f"  FINAL: {answer}")
+    
+    prompt.append("<|eot_id|>")  # End user turn
+    
+    # Assistant header (for model to complete)
+    prompt.append("<|start_header_id|>assistant<|end_header_id|>\n")
+    
+    return "\n".join(prompt)
+"""
+def agot_inference(model, tokenizer, ex, tau_bits=TAU_BITS):
     graph = build_graph(ex)
-    start = build_start_prompt(ex.question, graph)
-
-    Node = tuple[str, list[int], float]          # prompt, chain, logprob
-    queue = deque([(start, [], 0.0)])
+    prompt = build_llama3_prompt(ex.question, graph)
+    #print(f"Prompt: {prompt}")
+    Node = tuple[str, list[int], float]  # (prompt, chain, logprob)
+    #print(f"Node type:", Node)
+    queue = deque([(prompt, [], 0.0)])
+    
     completed = []
-
+    
     while queue and len(completed) < 4 and len(queue) < MAX_NODES:
-        prompt, chain, lp = queue.popleft()
+        #print("queue2:", queue)
+        current_prompt, chain, lp = queue.popleft()
+        #print(lp)
+        if len(chain) >= MAX_STEPS:
+            #print("Max steps reached, skipping...")
+            continue
+        
+        # Tokenize and generate
+        inputs = tokenizer(current_prompt, return_tensors="pt").to(DEVICE)
+        input_length = inputs.input_ids.shape[1]
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                do_sample=False,
+                #temperature=0.7,
+                #top_p=0.9,
+                max_new_tokens=1000
+            )
+        #print("o1", tokenizer.decode(outputs[0], skip_special_tokens=True))
+        
+        #here
+        # Decode new tokens only
+        new_tokens = outputs[0][input_length:]
+        new_text = tokenizer.decode(
+            new_tokens,
+            skip_special_tokens=True
+        )
 
-        # Stop if exceeded hop limit
+        print(f"New text: {new_text}")
+        #print(f"Chain: {chain}")
+        
+        # Check for final answer
+        if "FINAL:" in new_text:
+            answer = new_text.split("FINAL:")[-1].strip()
+            completed.append((chain, answer, lp))
+            continue
+        
+        # Extract next step
+        step_match = re.search(r"\[STEP\s+\d+\]\s*(\d+)", new_text)
+        if not step_match:
+            continue
+            
+        next_pid = int(step_match.group(1))
+        
+        # Update logprob
+        step_logits = outputs.scores[0][0]
+        token_id = tokenizer.encode(str(next_pid), add_special_tokens=False)[0]
+        new_lp = lp + step_logits.log_softmax(-1)[token_id].item()
+        
+        # Get paragraph content
+        para = " ".join(graph.nodes[next_pid]["sentences"])
+        
+        # Build next prompt
+        next_prompt = (
+            current_prompt + new_text +
+            f"\nPARA {next_pid}: {para}"
+            "<|eot_id|>"
+            "<|start_header_id|>assistant<|end_header_id|>"
+        )
+        
+        queue.append((next_prompt, chain + [next_pid], new_lp))
+        
+        # Branch if uncertain
+        if entropy_bits(step_logits) >= tau_bits:
+            queue.append((next_prompt, chain + [next_pid], new_lp - 1.0))
+    
+    return max(completed, key=lambda x: x[2])[1] if completed else ""
+    """
+
+def agot_inference(model, tokenizer, ex, tau_bits=TAU_BITS):
+    graph = build_graph(ex)
+    # Build prompt WITHOUT the assistant header at the end
+    prompt = build_llama3_prompt(ex.question, graph).replace(
+        "<|start_header_id|>assistant<|end_header_id|>\n", ""
+    )
+    
+    print("\n=== INITIAL PROMPT ===")
+    print(prompt)
+    print("=====================")
+
+    queue = deque([(prompt, [], 0.0)])
+    completed = []
+    
+    while queue and len(completed) < 4 and len(queue) < MAX_NODES:
+        current_prompt, chain, lp = queue.popleft()
+        
         if len(chain) >= MAX_STEPS:
             continue
 
-        inpt = tok(prompt, return_tensors="pt").to(DEVICE)
-        with torch.no_grad():
-            gen = model.generate(
-                **inpt,
-                max_new_tokens=MAX_NEWTOK,
-                output_scores=True,
-                return_dict_in_generate=True,
-                do_sample=False
-            )
+        # Force generation to continue by removing EOS during generation
+        inputs = tokenizer(current_prompt, return_tensors="pt").to(DEVICE)
+        
+        print("\n=== GENERATION INPUT ===")
+        print(f"Input length: {len(inputs.input_ids[0])} tokens")
+        print("Last 20 tokens:", tokenizer.decode(inputs.input_ids[0][-20:]))
+        
+        try:
+            with torch.no_grad():
+                outputs = model.generate(
+                    **inputs,
+                    max_new_tokens=MAX_NEWTOK,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_k=50,
+                    top_p=0.9,
+                    num_return_sequences=1,
+                    pad_token_id=tokenizer.eos_token_id,
+                    eos_token_id=None,  # Disable early stopping
+                    early_stopping=False
+                )
+            
+            new_tokens = outputs[0][inputs.input_ids.shape[-1]:]
+            new_text = tokenizer.decode(new_tokens, skip_special_tokens=False)
+            
+            print("\n=== MODEL OUTPUT ===")
+            print("Raw tokens:", new_tokens)
+            print("Decoded text:", repr(new_text))
+            
+            # Clean the output
+            new_text = new_text.split('<|eot_id|>')[0].strip()
+            if not new_text:
+                print("Empty generation after cleaning")
+                continue
+                
+            print("Cleaned text:", repr(new_text))
 
-        # Decode ONLY the new text
-        new_txt = tok.decode(gen.sequences[0][inpt.input_ids.size(1):],
-                             skip_special_tokens=True)
+            # Check for final answer
+            if "FINAL:" in new_text:
+                answer = new_text.split("FINAL:")[-1].strip()
+                completed.append((chain, answer, lp))
+                continue
+                
+            # Extract next step
+            step_match = re.search(r"\[STEP\s+\d+\]\s*(\d+)", new_text)
+            if not step_match:
+                print("No step pattern found")
+                continue
+                
+            next_pid = step_match.group(1)
+            print(f"Found next PID: {next_pid}")
 
-        # --- Check for FINAL answer -----------------------------------------
-        m_final = re.search(r"FINAL:\s*(.+)", new_txt)
-        if m_final:
-            completed.append((chain, m_final.group(1).strip(), lp))
+            # [Rest of your processing logic...]
+
+        except Exception as e:
+            print(f"Generation error: {str(e)}")
             continue
 
-        # --- Extract predicted next pid -------------------------------------
-        m_step = re.search(r"\[STEP\s+\d+\]\s*(\d+)", new_txt)
-        if not m_step:
-            continue          # malformed → skip
-        pid = int(m_step.group(1))
+    return completed[0][1] if completed else ""
 
-        # Update chain and log-prob of that prediction
-        step_logits = gen.scores[0][0]                 # first token logits
-        token_id    = tok.encode(str(pid), add_special_tokens=False)[0]
-        lp_new      = lp + step_logits.log_softmax(-1)[token_id].item()
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num", type=int, default=1)
+    parser.add_argument("--tau", type=float, default=TAU_BITS)
+    args = parser.parse_args()
+    
+    # Load tokenizer and model
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_ID)
+    tokenizer.pad_token = tokenizer.eos_token
 
-        # Compute entropy to decide branching
-        H = entropy_bits(step_logits)
-
-        # Append retrieved paragraph text to prompt context
-        para = " ".join(graph.nodes[pid]["sentences"])
-        new_prompt = (
-            prompt
-            + f"\n[STEP {len(chain)+1}] {pid}"
-            + f"\n\nPARA {pid}: {para}"
-            + "<|eot_id|>"                              # close assistant turn
-            + "\n<|start_header_id|>assistant<|end_header_id|>"  # reopen for next step
-        )
-
-        queue.append((new_prompt, chain + [pid], lp_new))
-
-        # Branch if LM is uncertain
-        if H >= tau_bits and len(queue) < MAX_NODES:
-            queue.append((new_prompt, chain + [pid], lp_new - 1.0))
-
-    # Return best answer by log-prob
-    if completed:
-        return max(completed, key=lambda t: t[2])[1]
-    return ""
-
-# ── Main CLI ---------------------------------------------------------------
-if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--num", type=int, default=200, help="# dev rows to run")
-    ap.add_argument("--tau", type=float, default=TAU_BITS, help="entropy gate")
-    args = ap.parse_args()
-
-    # Load model + tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, padding_side="right")
+    # Model loading
     if torch.cuda.is_available():
-        bnb_config = BitsAndBytesConfig(load_in_4bit=True)
-        base = AutoModelForCausalLM.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
-            quantization_config=bnb_config,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="cpu"
+            torch_dtype=torch.float16,
+            device_map="auto"
         )
     else:
-        base = AutoModelForCausalLM.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
-            torch_dtype=torch.float32,
-            device_map="cpu"
+            torch_dtype=torch.float32
+        ).to(DEVICE)
+    
+    # Load LoRA adapter if exists
+    if (MODEL_DIR / "adapter_config.json").exists():
+        model = PeftModel.from_pretrained(model, MODEL_DIR)
+    
+        print("\n=== BASIC GENERATION TEST ===")
+        test_prompt = "The capital of France is"
+        inputs = tokenizer(test_prompt, return_tensors="pt").to(device)
+        #print(f"Input IDs: {inputs['input_ids']}")
+        print(f"Tokenized: {tokenizer.batch_decode(inputs['input_ids'])}")
+
+
+    model.eval()
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            do_sample=True,
+            #temperature=0.7,
+            top_p=0.9,
+            repetition_penalty=1.1
         )
-    model     = PeftModel.from_pretrained(base, MODEL_DIR).to(DEVICE).eval()
 
-    # Dev data
-    examples = load_examples(str(PROC_DIR), DEV_SPLIT)[: args.num]
-    metric   = load_metric("squad_v2")
+    # Load data
+    examples = load_examples(str(PROC_DIR), DEV_SPLIT)[:args.num]
+    print(f"Loaded {len(examples)} examples")
+    metric = load_metric("squad_v2")
+    
+    # Evaluation
+    predictions = []
+    references = []
+    
+    for ex in tqdm(examples, desc="Evaluating"):
+        answer = agot_inference(model, tokenizer, ex, args.tau)
+        
+        predictions.append({
+            "id": ex.qid,
+            "prediction_text": answer,
+            "no_answer_probability": 0.0
+        })
+        
+        references.append({
+            "id": ex.qid,
+            "answers": {
+                "text": [ex.answer],
+                "answer_start": [0]
+            }
+        })
+    #print(predictions)
+    # Compute metrics
+    results = metric.compute(
+        predictions=predictions,
+        references=references
+    )
+    
+    print(f"\nResults:")
+    print(f"Exact Match: {results['exact']:.2f}%")
+    print(f"F1: {results['f1']:.2f}%")
 
-    for ex in tqdm(examples):
-        pred = agot_answer(model, tokenizer, ex, tau_bits=args.tau)
-        metric.add(prediction=pred.lower(),
-                   reference=(ex.answer or "").lower())
-
-    res = metric.compute()
-    print(f"Exact Match {res['exact_match']:.2f}%  |  F1 {res['f1']:.2f}%")
+if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    main()

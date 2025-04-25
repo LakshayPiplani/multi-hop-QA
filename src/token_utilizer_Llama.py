@@ -115,7 +115,7 @@ def serialize_example(
 
     # ── assistant header: label text only ──────────────────
     assistant_block = (
-        "<|start_header_id|>assistant<|end_header_id|>\n" +
+        "<|start_header_id|>assistant<|end_header_id|>\n[STEP 1]" +
         "\n".join(gold_lines)
     )
 

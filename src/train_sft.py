@@ -25,12 +25,11 @@ MODEL_ID = "meta-llama/Llama-3.2-1B"
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("mps") if torch.backends.mps.is_available() else device
+    print(f"Using device: {device}")
     # Resolve project root and data directories
     PROJECT_ROOT = Path(__file__).parent.parent.resolve()
     processed_dir = PROJECT_ROOT / "data" / "processed"
     train_subdir = "train" ## only load training data
-
 
     # Load examples
     print("Loading training examples...")
@@ -60,8 +59,6 @@ def main():
     tokenizer.padding_side = "right"
 
 
-
-
     def tokenize_fn(batch, MAX_LEN=2048):
         """
         1. Tokenise the *full prompt*   → `inputs`
@@ -77,7 +74,6 @@ def main():
             padding="longest",
         )
 
-        # 2️⃣ Gold chain only
         enc_gold = tokenizer(
             batch["labels"],
             truncation=True,
@@ -118,13 +114,14 @@ def main():
             MODEL_ID,
             quantization_config=bnb_config,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="cpu"
+            device_map="auto"
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             torch_dtype=torch.float32,
-            device_map="cpu"
+            device_map="auto"
+
         )
 
     # Apply LoRA adapters
@@ -139,7 +136,7 @@ def main():
     )
     model = get_peft_model(model, peft_config)
     torch.cuda.empty_cache()
-    fp16_flag = True if torch.cuda.is_available() else False
+    fp16_flag = torch.cuda.is_available()
     # Training arguments
     training_args = TrainingArguments(
         output_dir=str(PROJECT_ROOT / "models" / "sft2"),
