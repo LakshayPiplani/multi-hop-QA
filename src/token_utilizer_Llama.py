@@ -15,10 +15,10 @@ def get_project_root() -> Path:
 
 
 # Initialize the tokenizer
-def get_tokenizer(model_name: str = MODEL_ID) -> LlamaTokenizer:
-    tok = LlamaTokenizer.from_pretrained(model_name)
-    tok.pad_token = tok.eos_token
-    return tok
+# def get_tokenizer(model_name: str = MODEL_ID) -> LlamaTokenizer:
+#     tok = LlamaTokenizer.from_pretrained(model_name)
+#     tok.pad_token = tok.eos_token
+#     return tok
 
 
 def sample_wrong_paths(
@@ -115,8 +115,9 @@ def serialize_example(
 
     # ── assistant header: label text only ──────────────────
     assistant_block = (
-        "<|start_header_id|>assistant<|end_header_id|>\n[STEP 1]" +
-        "\n".join(gold_lines)
+        "<|start_header_id|>assistant<|end_header_id|>\n" +
+        "\n".join(gold_lines) + "\n" +
+        "<|eot_id|>"
     )
 
     full_prompt = "\n".join([system, user_block, assistant_block])
