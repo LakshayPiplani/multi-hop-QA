@@ -126,7 +126,7 @@ def serialize_example(
     for idx, path in enumerate(wrong_paths, start=2):
         user_lines.append(f"\nCANDIDATE {idx}:")
         for i, pid in enumerate(path, 1):
-            user_lines.append(f"  [STEP {i}] {pid}")
+            user_lines.append(f"  [STEP {i}] {pid}") 
         user_lines.append("  FINAL:")
 
     user_lines.append("<|eot_id|>")
