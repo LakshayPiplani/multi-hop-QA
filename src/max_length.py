@@ -5,7 +5,7 @@ from datasets import load_from_disk
 from transformers import LlamaTokenizer
 
 from huggingface_hub import login
-login(token="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")
+login(token="-----") # personal token removed for security
 
 def analyze_paragraph_lengths(processed_dir: str, sub_dirs: list[str], use_tokenizer: bool = True):
     """
