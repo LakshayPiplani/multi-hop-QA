@@ -2,7 +2,7 @@
 Adaptive GoT inference for Llama-3.2-1B fine-tuned on HotpotQA with proper Llama-3 chat template
 """
 from huggingface_hub import login
-login(token="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")
+login(token="------") # personal token removed for security
 import warnings
 warnings.filterwarnings("ignore")
 import os, re, math, argparse, torch, json
