@@ -1,7 +1,6 @@
 # Multi-hop-QA
 
-Llama trained for Multi-Hop Question Answering using  based Supervised Fine Tuning
-
+Llama trained for Multi-Hop Question Answering using  based Supervised Fine Tuning (check llama_new branch)
 This final project has been done by,
 Lakshay Piplani ljp5718@psu.edu
 Durva Dev dbd5616@psu.edu
