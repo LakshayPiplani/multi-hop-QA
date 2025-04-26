@@ -77,26 +77,26 @@ def serialize_example(
 
     # ── system block ───────────────────────────────────────
     system = (
-        "<|begin_of_text|>"
-        "<|start_header_id|>system<|end_header_id|>\n"
-        "You are a careful multi-hop reasoner. Think step-by-step."
-        "Your task is to:"
-        "1. First identify the most relevant paragraph(s) to the question"
-        "2. Extract key information from those paragraphs"
-        "3. Combine the information to form a final answer"
-        "4. Present your reasoning clearly with [STEP X] tags before each step"
-        """
-        EXAMPLE QUESTION: Which company is older, EOG Resources or General Mills?
-        PARAGRAPHS:
-        0: EOG Resources || Founded in 1999...
-        1: General Mills || Founded in 1866...
+            "<|begin_of_text|>"
+            "<|start_header_id|>system<|end_header_id|>\n"
+            "You are a careful multi-hop reasoner. Think step-by-step."
+            "Your task is to:"
+            "1. First identify the most relevant paragraph(s) to the question"
+            "2. Extract key information from those paragraphs"
+            "3. Combine the information to form a final answer"
+            "4. Present your reasoning clearly with [STEP X] tags before each step"
+            """
+            EXAMPLE QUESTION: Which company is older, EOG Resources or General Mills?
+            PARAGRAPHS:
+            0: EOG Resources || Founded in 1999...
+            1: General Mills || Founded in 1866...
 
-        [STEP 1] Check founding dates in paragraph 0 and 1
-        [STEP 2] EOG founded in 1999 (paragraph 0)
-        [STEP 3] General Mills founded in 1866 (paragraph 1)
-        FINAL: General Mills is older
-        """
-        "<|eot_id|>"
+            [STEP 1] Check founding dates in paragraph 0 and 1
+            [STEP 2] EOG founded in 1999 (paragraph 0)
+            [STEP 3] General Mills founded in 1866 (paragraph 1)
+            FINAL: General Mills is older
+            """
+            "<|eot_id|>"
     )
 
     # ── user block: question + paragraphs + candidates ─────

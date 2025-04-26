@@ -1,7 +1,7 @@
 {
   "alpha_pattern": {},
   "auto_mapping": null,
-  "base_model_name_or_path": "meta-llama/Llama-3.2-1B",
+  "base_model_name_or_path": "meta-llama/Llama-3.2-3B",
   "bias": "none",
   "corda_config": null,
   "eva_config": null,
@@ -24,8 +24,8 @@
   "rank_pattern": {},
   "revision": null,
   "target_modules": [
-    "q_proj",
-    "v_proj"
+    "v_proj",
+    "q_proj"
   ],
   "task_type": "CAUSAL_LM",
   "trainable_token_indices": null,

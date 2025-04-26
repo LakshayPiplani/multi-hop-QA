@@ -22,11 +22,11 @@ MAX_NEWTOK = 32
 MAX_NODES = 800
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 ROOT = Path(__file__).parent.parent.resolve()
-MODEL_DIR = ROOT / "models" / "sft1"
+MODEL_DIR = ROOT / "models" / "sft2" / "checkpoint-1390"
 PROC_DIR = ROOT / "data" / "processed"
 DEV_SPLIT = "test"
-MODEL_ID = "meta-llama/Llama-3.2-3B" #  model path
-TOKENIZER_ID = "meta-llama/Llama-3.2-3B"  # Official tokenizer
+MODEL_ID = "meta-llama/Llama-3.2-1B" #  model path
+TOKENIZER_ID = "meta-llama/Llama-3.2-1B"  # Official tokenizer
 
 def entropy_bits(logits):
     p = logits.softmax(-1)
@@ -136,8 +136,8 @@ def agot_inference(model, tokenizer, ex, tau_bits=TAU_BITS):
             #print(repr(new_text))
 
             cleaned_text = re.sub(r"^[0-9]+[^a-zA-Z]+|[^a-zA-Z]+$", "", new_text).strip()
-            #print("\n=== CLEANED TEXT with REGEX ===")
-            print(cleaned_text)
+            #print("\n=== CLEANED TEXT with REGEX: THE MODEL'S ANSWER===")
+            #print(cleaned_text)
             return cleaned_text
 
             if not cleaned_text:
@@ -199,7 +199,7 @@ def main():
     
     # Load LoRA adapter if exists
     if (MODEL_DIR / "adapter_config.json").exists():
-        #model = PeftModel.from_pretrained(model, MODEL_DIR)
+        model = PeftModel.from_pretrained(model, MODEL_DIR)
     
         test_prompt = "What is the capital of France?"
         inputs = tokenizer(test_prompt, return_tensors="pt").to(DEVICE)
@@ -233,7 +233,7 @@ def main():
             "prediction_text": answer,
             "no_answer_probability": 0.0
         })
-        #print(f"Reference answer: {ex.answer}")
+        #print(f"GROUND TRUTH: {ex.answer}")
         references.append({
             "id": ex.qid,
             "answers": {
