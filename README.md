@@ -1,6 +1,6 @@
 # Multi-hop-QA
 
-Llama trained for Multi-Hop Question Answering using Knowledge Graph based Supervised Fine Tuning and Critique Fine Tuning
+Llama trained for Multi-Hop Question Answering using  based Supervised Fine Tuning
 
 This final project has been done by,
 Lakshay Piplani ljp5718@psu.edu
@@ -23,3 +23,19 @@ python download_data.py --output_dir <output_directory> --splits <split1> <split
 You can specify the output directory and the splits you want to download using command line arguments. You can download train, dev and test splits.
 
 By default, it will download the train and dev splits and save them in the "data/raw" directory. 
+
+## Train Models
+
+You can change base model in train_sft.py
+
+```
+cd ~/src
+python3 train_sft.py
+```
+
+## Inference 
+
+```
+cd ~/src
+python3 infer_and_evaluate.py
+```
